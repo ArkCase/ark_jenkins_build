@@ -1,0 +1,189 @@
+#!/bin/bash
+
+LATEST="latest"
+CONFIG="configure"
+TOOL_DIR="/tools"
+INIT_DIR="/init.d"
+
+say() {
+	echo -e "${@}"
+}
+
+err() {
+	say "ERROR: ${@}" 1>&2
+}
+
+fail() {
+	say "${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+list_versions() {
+	local TOOL="${1}"
+
+	# There will be symlinks for major, major-minor, etc... so one doesn't have to enter
+	# the full version, as well as "latest" ...
+	find -L "${TOOL}" -mindepth 1 -maxdepth 1 -type d | \
+		sed -e 's;/$;;g' -e 's;^.*/;;g' | \
+		grep -v "${LATEST}" | \
+		sort -V
+}
+
+configure_tools() {
+	# Choose the right tool per environment
+	local ERRORS=()
+	local PATHS=()
+	local OUT=()
+	while read tool ; do
+
+		# Skip non-directories
+		[ -d "${tool}" ] || continue
+
+		# The variable name will be the tool directory's basename
+		TOOL="${tool##*/}"
+
+		# Tool names are homogenized to upper case since this is the name of the config variable
+		TOOL="${TOOL^^}"
+		# Swap out dashes for underscores
+		TOOL="${TOOL/-/_}"
+		VER="${!TOOL}"
+
+		# If no version is given for the tool, then we use the ${LATEST} marker
+		[ -z "${VER}" ] && VER="${LATEST}"
+
+		# Versions are homogenized to lowercase to avoid case issues (is this proper?)
+		VER="${VER,,}"
+
+		# If the tool is not meant to be enabled, we simply skip it
+		[ "${VER}" == "off" ] && continue
+
+		readarray -t AVAILABLE < <(list_versions "${tool}")
+
+		# If there are no tools in there
+		[ "${#AVAILABLE[@]}" -lt 1 ] && continue
+
+		# If there's no "latest" link, we choose the last version in the array
+		[ "${VER}" = "${LATEST}" ] && [ ! -d "${tool}/${VER}" ] && VER="${AVAILABLE[-1]}"
+
+		# If the variable is set, then ${tool}/${VER} must exist and be a folder (or link to one)
+		if [ -d "${tool}/${VER}" ] ; then
+			# The version directory exists, so use it
+
+			# We use readlink -f to resolve the actual path for the tool before configuring it
+			ACTUAL="$(readlink -f "${tool}/${VER}")"
+
+			# This is the actual version we're using
+			VER="${ACTUAL##*/}"
+
+			# If there's a bin directory within, we will add it to the system path (eventually)
+			TOOL_BIN="${ACTUAL}/bin"
+			[ -d "${TOOL_BIN}" ] && PATHS+=("${TOOL_BIN}")
+			OUT+=("${TOOL}/${VER}/${TOOL_BIN:+bin}")
+			continue
+		fi
+
+		# Version does not exist ... EXPLODE!!
+		ERRORS+=("There is no version [${VER}] for ${TOOL} - only these versions are available: ${AVAILABLE[@]} x")
+	done < <(find -L "${TOOL_DIR}" -mindepth 1 -maxdepth 1 -type d)
+
+	if [ ${#ERRORS[@]} -ne 0 ] ; then
+		for E in "${ERRORS[@]}" ; do
+			err "${E}"
+		done
+		err "Configuration errors were found which prevented the image from starting up"
+		return 1
+	fi
+
+	for O in "${OUT[@]}" ; do
+		echo "${O}"
+	done
+	return 0
+}
+
+sanitize_path() {
+	local OLD_PATH="${@}"
+	local NEW_PATH=""
+	declare -A ENTRIES
+	while read entry ; do
+		[ -z "${entry}" ] && continue
+		[ -n "${ENTRIES[${entry}]}" ] && continue
+		[ -n "${NEW_PATH}" ] && NEW_PATH+=":"
+		NEW_PATH+="${entry}"
+		ENTRIES[${entry}]="${entry}"
+	done < <(echo -n "${OLD_PATH}" | tr ':' '\n')
+	echo "${NEW_PATH}"
+
+}
+
+# Run the tool configurations
+CONFIGURED_TOOLS="$(configure_tools)"
+[ ${?} -ne 0 ] && fail "Failed to configure tool versions"
+readarray -t TOOLS < <(echo -n "${CONFIGURED_TOOLS}")
+
+NEW_PATHS=()
+TOOL_HOMES=()
+TOOL_VERSIONS=()
+for TOOL in "${TOOLS[@]}" ; do
+	IFS="/" read tool version bin <<< "${TOOL}"
+
+	TOOL_HOME="${TOOL_DIR}/${tool,,}/${version}"
+	[ -n "${bin}" ] && NEW_PATHS+=("${TOOL_HOME}/bin")
+
+	TOOL_HOMES+=("${tool}_HOME=\"${TOOL_HOME}\"")
+	TOOL_VERSIONS+=("${tool}_VER=\"${version}\"")
+done
+
+# Set the tool version variables, for informational purposes
+for TOOL_VERSION in "${TOOL_VERSIONS[@]}" ; do
+	eval export "${TOOL_VERSION}"
+done
+
+# Set the tool home variables, for informational purposes
+for TOOL_HOME in "${TOOL_HOMES[@]}" ; do
+	eval export "${TOOL_HOME}"
+done
+
+# Add the tool paths
+NEW_PATH=""
+for P in "${NEW_PATHS[@]}" ; do
+	[ -n "${NEW_PATH}" ] && NEW_PATH+=":"
+	NEW_PATH+="${P}"
+done
+
+# We use sanitize_path to end up with a clean path with no duplicate or empty entries
+# We prioritize the new path to give opportunity to override system-default tools
+export PATH="$(sanitize_path "${NEW_PATH}:${PATH}")"
+
+# Finally, source each tool's configuration scripts - version-specific first,
+# then the parent directory's. We do this after the other configurations complete
+# in the event that tools need to talk to each others
+for TOOL_HOME in "${TOOL_HOMES[@]}" ; do
+	# Clear this flag - needs to be done every iteration
+	IGNORE_PARENT=""
+
+	# We're applying the version's configuration file, so let's do it!
+	CFG="${TOOL_HOME}/${CONFIG}"
+	if [ -f "${CFG}" ]; then
+		. "${CFG}" || fail "Failed to apply the configurations from [${CFG}] ..."
+		# If this script wants the parent configuration script to be ignored
+		# it can set the IGNORE_PARENT variable to "true"
+	fi
+
+	# If we've been told to ignore the parent configuration file, we do so
+	[ "${IGNORE_PARENT,,}" != "true" ] && continue
+
+	# Who's the parent?
+	TOOL_PARENT="${TOOL_HOME%/*}"
+
+	# We're applying the parent configuration file, so let's do it!
+	CFG="${TOOL_PARENT}/${CONFIG}"
+	if [ -f "${CFG}" ]; then
+		. "${CFG}" || fail "Failed to apply the configurations from [${CFG}] ..."
+	fi
+done
+
+# Allow for initialization scripts to be added
+[ -d "${INIT_DIR}" ] && ( cd / && run-parts --report "${INIT_DIR}" )
+
+# Per the docs at https://plugins.jenkins.io/docker-plugin/, this needs to be our last line
+exec "${@}"
