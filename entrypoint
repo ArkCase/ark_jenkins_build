@@ -23,10 +23,10 @@ list_versions() {
 
 	# There will be symlinks for major, major-minor, etc... so one doesn't have to enter
 	# the full version, as well as "latest" ...
-	find -L "${TOOL}" -mindepth 1 -maxdepth 1 -type d | \
-		sed -e 's;/$;;g' -e 's;^.*/;;g' | \
-		grep -v "${LATEST}" | \
-		sort -V
+	/usr/bin/find -L "${TOOL}" -mindepth 1 -maxdepth 1 -type d | \
+		/usr/bin/sed -e 's;/$;;g' -e 's;^.*/;;g' | \
+		/usr/bin/grep -v "${LATEST}" | \
+		/usr/bin/sort -V
 }
 
 configure_tools() {
@@ -70,7 +70,7 @@ configure_tools() {
 			# The version directory exists, so use it
 
 			# We use readlink -f to resolve the actual path for the tool before configuring it
-			ACTUAL="$(readlink -f "${tool}/${VER}")"
+			ACTUAL="$(/usr/bin/readlink -f "${tool}/${VER}")"
 
 			# This is the actual version we're using
 			VER="${ACTUAL##*/}"
@@ -84,7 +84,7 @@ configure_tools() {
 
 		# Version does not exist ... EXPLODE!!
 		ERRORS+=("There is no version [${VER}] for ${TOOL} - only these versions are available: ${AVAILABLE[@]} x")
-	done < <(find -L "${TOOL_DIR}" -mindepth 1 -maxdepth 1 -type d)
+	done < <(/usr/bin/find -L "${TOOL_DIR}" -mindepth 1 -maxdepth 1 -type d)
 
 	if [ ${#ERRORS[@]} -ne 0 ] ; then
 		for E in "${ERRORS[@]}" ; do
@@ -183,7 +183,7 @@ for TOOL_HOME in "${TOOL_HOMES[@]}" ; do
 done
 
 # Allow for initialization scripts to be added
-[ -d "${INIT_DIR}" ] && ( cd / && run-parts --report "${INIT_DIR}" )
+[ -d "${INIT_DIR}" ] && ( cd / && /usr/bin/run-parts --report "${INIT_DIR}" )
 
 # Per the docs at https://plugins.jenkins.io/docker-plugin/, this needs to be our last line
 exec "${@}"
