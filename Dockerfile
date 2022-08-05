@@ -25,6 +25,7 @@ COPY entrypoint /
 # Final parameters
 #
 VOLUME      [ "/tools" ]
+VOLUME      [ "/cache" ]
 VOLUME      [ "/init.d" ]
 WORKDIR     /
 ENTRYPOINT  [ "/entrypoint" ]
