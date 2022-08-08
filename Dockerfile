@@ -11,6 +11,8 @@ ARG APP_USER="jenkins"
 ARG APP_UID="1000"
 ARG APP_GROUP="builder"
 ARG APP_GID="1000"
+ARG NVM_VER="0.39.1"
+ARG NVM_INSTALLER="https://raw.githubusercontent.com/creationix/nvm/v${NVM_VER}/install.sh"
 
 #
 # Some important labels
@@ -27,6 +29,7 @@ LABEL IMAGE_SOURCE="https://github.com/ArkCase/ark_jenkins_build"
 ENV APP_USER="${APP_USER}"
 ENV APP_UID="${APP_UID}"
 ENV APP_GID="${APP_GID}"
+ENV NVM_VER="${NVM_VER}"
 
 #
 # O/S updates, and base tools
@@ -114,9 +117,19 @@ RUN chmod 0755 /entrypoint
 # RUN chmod 0640 /etc/sudoers.d/00-build
 
 #
+# Now do the configurations for the actual user
+#
+USER "${APP_USER}"
+
+#
+# Install NVM (not really needed b/c of how /tools works)
+#
+# RUN export PROFILE="/home/${APP_USER}/.bashrc" && \
+#	curl -o- "${NVM_INSTALLER}" | bash
+
+#
 # Final parameters
 #
-USER        "${APP_USER}"
 VOLUME      [ "/init.d" ]
 VOLUME      [ "/home/${APP_USER}" ]
 VOLUME      [ "/tools" ]
