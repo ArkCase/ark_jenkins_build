@@ -31,14 +31,68 @@ ENV APP_GID="${APP_GID}"
 #
 # O/S updates, and base tools
 #
-RUN apt-get update && apt-get -y dist-upgrade -f
-RUN apt-get install -y \
-        gcc \
-        git \
-        make \
-        openssl \
-        sudo \
-        vim
+RUN apt-get update && \
+	apt-get -y dist-upgrade -f && \
+	apt-get install -y \
+		autoconf \
+		automake \
+		bzip2 \
+		bzr \
+		ca-certificates \
+		curl \
+		dirmngr \
+		default-libmysqlclient-dev \
+		dpkg-dev \
+		file \
+		g++ \
+		gcc \
+		gcc \
+		git \
+		gnupg \
+		imagemagick \
+		libbz2-dev \
+		libc6-dev \
+		libcurl4-openssl-dev \
+		libdb-dev \
+		libevent-dev \
+		libffi-dev \
+		libgdbm-dev \
+		libgeoip-dev \
+		libglib2.0-dev \
+		libgmp-dev \
+		libjpeg-dev \
+		libkrb5-dev \
+		liblzma-dev \
+		libmagickcore-dev \
+		libmagickwand-dev \
+		libncurses5-dev \
+		libncursesw5-dev \
+		libpng-dev \
+		libpq-dev \
+		libreadline-dev \
+		libsqlite3-dev \
+		libssl-dev \
+		libtool \
+		libwebp-dev \
+		libxml2-dev \
+		libxslt-dev \
+		libyaml-dev \
+		make \
+		make \
+		mercurial \
+		netbase \
+		openssh-client \
+		openssl \
+		patch \
+		procps \
+		subversion \
+		sudo \
+		unzip \
+		vim \
+		wget \
+		xz-utils \
+		zlib1g-dev \
+	&& apt-get clean && rm -rf /var/lib/apt/lists/*
 
 #
 # Create the user and their home
