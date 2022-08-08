@@ -180,6 +180,12 @@ for TOOL_HOME in "${TOOL_HOMES[@]}" ; do
 	if [ -f "${CFG}" ]; then
 		. "${CFG}" || fail "Failed to apply the configurations from [${CFG}] ..."
 	fi
+
+	# Allow for global configurations for all tools
+	CFG="${TOOL_DIR}/${CONFIG}"
+	if [ -f "${CFG}" ]; then
+		. "${CFG}" || fail "Failed to apply the configurations from [${CFG}] ..."
+	fi
 done
 
 # Allow for initialization scripts to be added
