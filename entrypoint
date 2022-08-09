@@ -123,9 +123,9 @@ sanitize_path() {
 #
 is_privileged_container() {
 	local T="$(mktemp -d)"
-	sudo mount -t tmpfs -o size=1M tmpfs "${T}" &>/dev/null
+	/usr/bin/sudo -n mount -t tmpfs -o size=1M tmpfs "${T}" &>/dev/null
 	local RET=${?}
-	[ ${RET} -eq 0 ] && sudo umount "${T}" &>/dev/null
+	[ ${RET} -eq 0 ] && /usr/bin/sudo -n umount "${T}" &>/dev/null
 	rmdir "${T}" &>/dev/null
 	return "${RET}"
 }
@@ -152,7 +152,7 @@ if is_privileged_container ; then
 		[ -d "${MERGED}" ] || mkdir -p "${MERGED}" || fail "Failed to create the overlay directory [${MERGED}]"
 
 		# Mount the overlay using the above values
-		sudo mount -t overlay overlay \
+		/usr/bin/sudo -n mount -t overlay overlay \
 			-o lowerdir="${LOWER}",upperdir="${UPPER}",workdir="${WORK}" \
 			"${MERGED}" || fail "Failed to mount the overlay for [${D}]"
 	done
