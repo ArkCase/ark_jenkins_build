@@ -88,12 +88,14 @@ RUN apt-get update && \
 		openssl \
 		patch \
 		procps \
+		sshpass \
 		subversion \
 		sudo \
 		unzip \
 		vim \
 		wget \
 		xz-utils \
+		zip \
 		zlib1g-dev \
 	&& apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -120,6 +122,11 @@ RUN chmod 0640 /etc/sudoers.d/00-build
 # Now do the configurations for the actual user
 #
 USER "${APP_USER}"
+
+#
+# Disable SSL certificate verification for GIT (for now ... this probably needs to go away)
+#
+RUN git config --global http.sslVerify false
 
 #
 # Install NVM (not really needed b/c of how /tools works)
