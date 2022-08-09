@@ -265,7 +265,10 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 done
 
 # Allow for initialization scripts to be added
-[ -d "${INIT_DIR}" ] && ( cd / && /usr/bin/run-parts --report "${INIT_DIR}" )
+if [ -d "${INIT_DIR}" ] ; then
+	say "Running initializer scripts in [${INIT_DIR}]..."
+	( cd / && /usr/bin/run-parts --report "${INIT_DIR}" )
+fi
 
 # Per the docs at https://plugins.jenkins.io/docker-plugin/, this needs to be our last line
 exec "${@}"
