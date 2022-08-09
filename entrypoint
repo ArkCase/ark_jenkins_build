@@ -2,8 +2,6 @@
 
 LATEST="latest"
 CONFIG=".configure"
-# For when we choose to use COWs
-#TOOL_DIR="${HOME}/tools"
 TOOL_DIR="/tools"
 INIT_DIR="/init.d"
 
@@ -123,32 +121,46 @@ sanitize_path() {
 # mode, which is generally not very desirable. Once a decision has been reached to use this,
 # this can be uncommented
 #
-#is_privileged_container() {
-#	sudo ip link add dummy0 type dummy &>/dev/null
-#}
-#
+is_privileged_container() {
+	local T="$(mktemp -d)"
+	sudo mount -t tmpfs -o size=1M tmpfs "${T}" &>/dev/null
+	local RET=${?}
+	[ ${RET} -eq 0 ] && sudo umount "${T}" &>/dev/null
+	rmdir "${T}" &>/dev/null
+	return "${RET}"
+}
+
 # Mount an overlay folder for tools and cache?
-#COWS=("tools" "cache")
-#for D in "${COWS[@]}"; do
-#	say "Creating the overlay for [${D}]..."
-#
-#	LOWER="/${D}"
-#	[ -d "${LOWER}" ] || mkdir -p "${LOWER}" || fail "Failed to create the lower directory [${LOWER}]"
-#
-#	UPPER="${HOME}/.${D}"
-#	[ -d "${UPPER}" ] || mkdir -p "${UPPER}" || fail "Failed to create the upper directory [${UPPER}]"
-#
-#	WORK="${HOME}/.work/${D}"
-#	[ -d "${WORK}" ] || mkdir -p "${WORK}" || fail "Failed to create the work directory [${WORK}]"
-#
-#	MERGED="${HOME}/${D}"
-#	[ -d "${MERGED}" ] || mkdir -p "${MERGED}" || fail "Failed to create the overlay directory [${MERGED}]"
-#
-#	# Mount the overlay using the above values
-#	sudo mount -t overlay overlay \
-#		-o lowerdir="${LOWER}",upperdir="${UPPER}",workdir="${WORK}" \
-#		"${MERGED}" || fail "Failed to mount the overlay for [${D}]"
-#done
+export PRIVILEGED="false"
+if is_privileged_container ; then
+	say "Running in privileged mode, creating the COW directories"
+	PRIVILEGED="true"
+	COWS=("tools" "cache")
+	for D in "${COWS[@]}"; do
+		say "Creating the overlay for [${D}]..."
+
+		LOWER="/${D}"
+		[ -d "${LOWER}" ] || mkdir -p "${LOWER}" || fail "Failed to create the lower directory [${LOWER}]"
+
+		UPPER="${HOME}/.cows/upper/${D}"
+		[ -d "${UPPER}" ] || mkdir -p "${UPPER}" || fail "Failed to create the upper directory [${UPPER}]"
+
+		WORK="${HOME}/.cows/work/${D}"
+		[ -d "${WORK}" ] || mkdir -p "${WORK}" || fail "Failed to create the work directory [${WORK}]"
+
+		MERGED="${HOME}/${D}"
+		[ -d "${MERGED}" ] || mkdir -p "${MERGED}" || fail "Failed to create the overlay directory [${MERGED}]"
+
+		# Mount the overlay using the above values
+		sudo mount -t overlay overlay \
+			-o lowerdir="${LOWER}",upperdir="${UPPER}",workdir="${WORK}" \
+			"${MERGED}" || fail "Failed to mount the overlay for [${D}]"
+	done
+
+	# Use this as the location for the tools
+	TOOL_DIR="${HOME}/tools"
+	say "New TOOL_DIR=[${TOOL_DIR}]"
+fi
 
 # Run the tool configurations
 CONFIGURED_TOOLS="$(configure_tools)"
