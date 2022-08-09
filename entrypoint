@@ -2,6 +2,7 @@
 
 LATEST="latest"
 CONFIG=".configure"
+IGNORE=".ignore"
 TOOL_DIR="/tools"
 INIT_DIR="/init.d"
 
@@ -26,7 +27,10 @@ list_versions() {
 	/usr/bin/find -L "${TOOL}" -mindepth 1 -maxdepth 1 -type d | \
 		/usr/bin/sed -e 's;/$;;g' -e 's;^.*/;;g' | \
 		/usr/bin/grep -v "${LATEST}" | \
-		/usr/bin/sort -V
+		/usr/bin/sort -V | while read v ; do
+		[ -e "${TOOL}/${v}/${IGNORE}" ] && continue
+		echo "${v}"
+	done
 }
 
 configure_tools() {
@@ -34,7 +38,9 @@ configure_tools() {
 	local ERRORS=()
 	local PATHS=()
 	local OUT=()
+	local DEFAULTED="false"
 	while read tool ; do
+		DEFAULTED="false"
 
 		# Skip non-directories
 		[ -d "${tool}" ] || continue
@@ -49,7 +55,10 @@ configure_tools() {
 		VER="${!TOOL}"
 
 		# If no version is given for the tool, then we use the ${LATEST} marker
-		[ -z "${VER}" ] && VER="${LATEST}"
+		if [ -z "${VER}" ] ; then
+			VER="${LATEST}"
+			DEFAULTED="true"
+		fi
 
 		# Versions are homogenized to lowercase to avoid case issues (is this proper?)
 		VER="${VER,,}"
@@ -57,33 +66,48 @@ configure_tools() {
 		# If the tool is not meant to be enabled, we simply skip it
 		[ "${VER}" == "off" ] && continue
 
+		# If the tool is disabled, we simply skip it
+		[ -e "${tool}/${IGNORE}" ] && continue
+
 		readarray -t AVAILABLE < <(list_versions "${tool}")
 
 		# If there are no tools in there
-		[ "${#AVAILABLE[@]}" -lt 1 ] && continue
+		if [ "${#AVAILABLE[@]}" -lt 1 ] ; then
 
-		# If there's no "latest" link, we choose the last version in the array
-		[ "${VER}" = "${LATEST}" ] && [ ! -d "${tool}/${VER}" ] && VER="${AVAILABLE[-1]}"
+			# If we weren't explicitly asked for a tool that has no versions
+			# available, we simply skip it. Otherwise, it's an error we can't
+			# move past
+			${DEFAULTED} || ERRORS+=("There are no versions of ${TOOL} available")
 
-		# If the variable is set, then ${tool}/${VER} must exist and be a folder (or link to one)
-		if [ -d "${tool}/${VER}" ] ; then
-			# The version directory exists, so use it
-
-			# We use readlink -f to resolve the actual path for the tool before configuring it
-			ACTUAL="$(/usr/bin/readlink -f "${tool}/${VER}")"
-
-			# This is the actual version we're using
-			VER="${ACTUAL##*/}"
-
-			# If there's a bin directory within, we will add it to the system path (eventually)
-			TOOL_BIN="${ACTUAL}/bin"
-			[ -d "${TOOL_BIN}" ] && PATHS+=("${TOOL_BIN}")
-			OUT+=("${TOOL}/${VER}/${TOOL_BIN:+bin}")
+			# Regardless, we're moving on to the next tool
 			continue
 		fi
 
-		# Version does not exist ... EXPLODE!!
-		ERRORS+=("There is no version [${VER}] for ${TOOL} - only these versions are available: ${AVAILABLE[@]} x")
+		# If there's no "latest" link, we choose the last version in the array
+		[ "${VER}" == "${LATEST}" ] && [ ! -d "${tool}/${VER}" ] && VER="${AVAILABLE[-1]}"
+
+		# If the variable is set, then ${tool}/${VER} must exist and be a folder (or link to one)
+		if [ ! -d "${tool}/${VER}" ] ; then
+			# Version does not exist ... EXPLODE!!
+			ERRORS+=("There is no version [${VER}] for ${TOOL} - only these versions are available: ${AVAILABLE[@]}")
+			continue
+		fi
+
+		# The version directory exists, so use it
+
+		# We use readlink -f to resolve the actual path for the tool before configuring it
+		ACTUAL="$(/usr/bin/readlink -f "${tool}/${VER}")"
+
+		# This is the actual version we're using
+		VER="${ACTUAL##*/}"
+
+		# If the version is disabled, simply ignore it (this should be impossible)
+		[ -e "${ACTUAL}/${IGNORE}" ] && continue
+
+		# If there's a bin directory within, we will add it to the system path (eventually)
+		TOOL_BIN="${ACTUAL}/bin"
+		[ -d "${TOOL_BIN}" ] && PATHS+=("${TOOL_BIN}")
+		OUT+=("${TOOL}/${VER}/${TOOL_BIN:+bin}")
 	done < <(/usr/bin/find -L "${TOOL_DIR}" -mindepth 1 -maxdepth 1 -type d)
 
 	if [ ${#ERRORS[@]} -ne 0 ] ; then
@@ -132,34 +156,35 @@ is_privileged_container() {
 
 # Mount an overlay folder for tools and cache?
 export PRIVILEGED="false"
+COWS=("tools" "cache")
 if is_privileged_container ; then
 	say "Running in privileged mode, creating the COW directories"
 	PRIVILEGED="true"
-	COWS=("tools" "cache")
 	for D in "${COWS[@]}"; do
 		say "Creating the overlay for [${D}]..."
 
-		LOWER="/${D}"
-		[ -d "${LOWER}" ] || mkdir -p "${LOWER}" || fail "Failed to create the lower directory [${LOWER}]"
-
-		UPPER="${HOME}/.cows/upper/${D}"
-		[ -d "${UPPER}" ] || mkdir -p "${UPPER}" || fail "Failed to create the upper directory [${UPPER}]"
+		LOWER="/opt/build/${D}"
+		[ -d "${LOWER}" ] || /usr/bin/sudo /usr/bin/mkdir -p "${LOWER}" || fail "Failed to create the lower directory [${LOWER}]"
 
 		WORK="${HOME}/.cows/work/${D}"
-		[ -d "${WORK}" ] || mkdir -p "${WORK}" || fail "Failed to create the work directory [${WORK}]"
+		[ -d "${WORK}" ] || /usr/bin/mkdir -p "${WORK}" || fail "Failed to create the work directory [${WORK}]"
 
-		MERGED="${HOME}/${D}"
-		[ -d "${MERGED}" ] || mkdir -p "${MERGED}" || fail "Failed to create the overlay directory [${MERGED}]"
+		UPPER="${HOME}/.cows/upper/${D}"
+		[ -d "${UPPER}" ] || /usr/bin/mkdir -p "${UPPER}" || fail "Failed to create the upper directory [${UPPER}]"
+
+		MERGED="/${D}"
+		[ -d "${MERGED}" ] || /usr/bin/sudo /usr/bin/mkdir -p "${MERGED}" || fail "Failed to create the overlay directory [${MERGED}]"
 
 		# Mount the overlay using the above values
 		/usr/bin/sudo -n mount -t overlay overlay \
 			-o lowerdir="${LOWER}",upperdir="${UPPER}",workdir="${WORK}" \
 			"${MERGED}" || fail "Failed to mount the overlay for [${D}]"
 	done
-
-	# Use this as the location for the tools
-	TOOL_DIR="${HOME}/tools"
-	say "New TOOL_DIR=[${TOOL_DIR}]"
+else
+	say "Running in non-privileged mode, creating symbolic links"
+	for D in "${COWS[@]}"; do
+		sudo ln -sv "opt/build/${D}" "/${D}"
+	done
 fi
 
 # Run the tool configurations
