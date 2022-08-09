@@ -131,8 +131,8 @@ USER "${APP_USER}"
 # Final parameters
 #
 VOLUME      [ "/init.d" ]
-VOLUME      [ "/opt/build/cache" ]
-VOLUME      [ "/opt/build/tools" ]
+VOLUME      [ "/cache" ]
+VOLUME      [ "/tools" ]
 VOLUME      [ "/home/${APP_USER}" ]
 
 WORKDIR     "/home/${APP_USER}"

@@ -163,7 +163,7 @@ if is_privileged_container ; then
 	for D in "${COWS[@]}"; do
 		say "Creating the overlay for [${D}]..."
 
-		LOWER="/opt/build/${D}"
+		LOWER="/${D}"
 		[ -d "${LOWER}" ] || /usr/bin/sudo /usr/bin/mkdir -p "${LOWER}" || fail "Failed to create the lower directory [${LOWER}]"
 
 		WORK="${HOME}/.cows/work/${D}"
@@ -172,19 +172,16 @@ if is_privileged_container ; then
 		UPPER="${HOME}/.cows/upper/${D}"
 		[ -d "${UPPER}" ] || /usr/bin/mkdir -p "${UPPER}" || fail "Failed to create the upper directory [${UPPER}]"
 
-		MERGED="/${D}"
-		[ -d "${MERGED}" ] || /usr/bin/sudo /usr/bin/mkdir -p "${MERGED}" || fail "Failed to create the overlay directory [${MERGED}]"
-
 		# Mount the overlay using the above values
 		/usr/bin/sudo -n mount -t overlay overlay \
 			-o lowerdir="${LOWER}",upperdir="${UPPER}",workdir="${WORK}" \
-			"${MERGED}" || fail "Failed to mount the overlay for [${D}]"
+			"${LOWER}" || fail "Failed to mount the overlay for [${D}]"
 	done
-else
-	say "Running in non-privileged mode, creating symbolic links"
-	for D in "${COWS[@]}"; do
-		sudo ln -sv "opt/build/${D}" "/${D}"
-	done
+#else
+#	say "Running in non-privileged mode, creating symbolic links"
+#	for D in "${COWS[@]}"; do
+#		sudo ln -sv "opt/build/${D}" "/${D}"
+#	done
 fi
 
 # Run the tool configurations
