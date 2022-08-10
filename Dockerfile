@@ -124,11 +124,6 @@ RUN chmod 0640 /etc/sudoers.d/00-build
 USER "${APP_USER}"
 
 #
-# Disable SSL certificate verification for GIT (for now ... this probably needs to go away)
-#
-RUN git config --global http.sslVerify false
-
-#
 # Install NVM (not really needed b/c of how /tools works)
 #
 # RUN export PROFILE="/home/${APP_USER}/.bashrc" && \
