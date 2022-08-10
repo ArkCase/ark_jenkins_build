@@ -1,1 +1,4 @@
 **/*.swp
+tools
+cache
+init.d
