@@ -1,0 +1,16 @@
+#!/bin/bash
+
+case "${INFINITE}" in
+	true | false ) ;;
+	* ) INFINITE="false" ;;
+esac
+
+ARGS=("${@}")
+# If we've been told to sleep forever, we ignore whatever we've been told to do, and instead just sleep forever
+if ${INFINITE} ; then
+	echo -e "Running in infinity mode, so the given command [${ARGS[@]}] will not be executed"
+	ARGS=(/usr/bin/sleep infinity)
+fi
+
+echo -e "Executing the command [${ARGS[@]}]"
+exec /configure "${ARGS[@]}"
