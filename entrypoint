@@ -6,8 +6,28 @@ IGNORE=".ignore"
 TOOL_DIR="/tools"
 INIT_DIR="/init.d"
 
+trap cleanup EXIT
+
+GLOBAL_OUTPUT=()
+
+case "${SILENT,,}" in
+	false | true ) ;;
+	* ) SILENT="false" ;;
+esac
+
+cleanup() {
+	for l in "${GLOBAL_OUTPUT[@]}" ; do
+		echo "${l}"
+	done
+}
+
 say() {
-	echo -e "${@}"
+	local OUT="$(echo -ne "${@}")"
+	if ${SILENT} ; then
+		GLOBAL_OUTPUT+=("${OUT}")
+	else
+		echo "${OUT}"
+	fi
 }
 
 err() {
@@ -147,41 +167,48 @@ sanitize_path() {
 #
 is_privileged_container() {
 	local T="$(mktemp -d)"
-	/usr/bin/sudo -n mount -t tmpfs -o size=1M tmpfs "${T}" &>/dev/null
+	/usr/bin/sudo -n /usr/bin/mount -t tmpfs -o size=1M tmpfs "${T}" &>/dev/null
 	local RET=${?}
-	[ ${RET} -eq 0 ] && /usr/bin/sudo -n umount "${T}" &>/dev/null
+	[ ${RET} -eq 0 ] && /usr/bin/sudo -n /usr/bin/umount "${T}" &>/dev/null
 	rmdir "${T}" &>/dev/null
 	return "${RET}"
 }
 
 # Mount an overlay folder for tools and cache?
 export PRIVILEGED="false"
-COWS=("tools" "cache")
+COWS=("/tools" "/cache")
 if is_privileged_container ; then
 	say "Running in privileged mode, creating the COW directories"
 	PRIVILEGED="true"
-	for D in "${COWS[@]}"; do
-		say "Creating the overlay for [${D}]..."
+	for MOUNTPOINT in "${COWS[@]}"; do
+		MOUNTPOINT="$(readlink -f "${MOUNTPOINT}")"
 
-		LOWER="/${D}"
-		[ -d "${LOWER}" ] || /usr/bin/sudo /usr/bin/mkdir -p "${LOWER}" || fail "Failed to create the lower directory [${LOWER}]"
+		# First - does the mountpoint exist?
+		if [ ! -d "${MOUNTPOINT}" ] ; then
+			say "The mountpoint directory [${MOUNTPOINT}] does not exist ... will not create an overlay for it"
+			continue
+		fi
 
-		WORK="${HOME}/.cows/work/${D}"
+		# Second - is this already mounted as an overlay?
+		if /usr/bin/sudo -n /usr/bin/findmnt -t overlay -J "${MOUNTPOINT}" &>/dev/null ; then
+			say "The directory [${MOUNTPOINT}] seems to be an overlay, so will not mount another one on top"
+			continue
+		fi
+
+		# Ok... we're good to go on the overlay attempt
+		say "Creating the overlay for [${MOUNTPOINT}]..."
+
+		WORK="${HOME}/.cows/work${MOUNTPOINT}"
 		[ -d "${WORK}" ] || /usr/bin/mkdir -p "${WORK}" || fail "Failed to create the work directory [${WORK}]"
 
-		UPPER="${HOME}/.cows/upper/${D}"
+		UPPER="${HOME}/.cows/upper${MOUNTPOINT}"
 		[ -d "${UPPER}" ] || /usr/bin/mkdir -p "${UPPER}" || fail "Failed to create the upper directory [${UPPER}]"
 
 		# Mount the overlay using the above values
-		/usr/bin/sudo -n mount -t overlay overlay \
-			-o lowerdir="${LOWER}",upperdir="${UPPER}",workdir="${WORK}" \
-			"${LOWER}" || fail "Failed to mount the overlay for [${D}]"
+		/usr/bin/sudo -n /usr/bin/mount -t overlay overlay \
+			-o lowerdir="${MOUNTPOINT}",upperdir="${UPPER}",workdir="${WORK}" \
+			"${MOUNTPOINT}" || fail "Failed to mount the overlay for [${MOUNTPOINT}]"
 	done
-#else
-#	say "Running in non-privileged mode, creating symbolic links"
-#	for D in "${COWS[@]}"; do
-#		sudo ln -sv "opt/build/${D}" "/${D}"
-#	done
 fi
 
 # Run the tool configurations
@@ -271,4 +298,5 @@ if [ -d "${INIT_DIR}" ] ; then
 fi
 
 # Per the docs at https://plugins.jenkins.io/docker-plugin/, this needs to be our last line
+say "Launching command: [${@}] ..."
 exec "${@}"
