@@ -107,10 +107,10 @@ RUN groupadd --gid "${APP_GID}" "${APP_GROUP}"
 RUN useradd --uid "${APP_UID}" --gid "${APP_GID}" --groups "build" -m --home-dir "/home/${APP_USER}" "${APP_USER}"
 
 #
-# Add the entrypoint
+# Add the configure and entrypoint scripts
 #
-COPY --chown=root:root entrypoint /
-RUN chmod 0755 /entrypoint
+COPY --chown=root:root configure entrypoint /
+RUN chmod 0755 /configure /entrypoint
 
 #
 # Add the sudo configuration for the build group
