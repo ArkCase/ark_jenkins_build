@@ -297,6 +297,10 @@ if [ -d "${INIT_DIR}" ] ; then
 	( cd / && /usr/bin/run-parts --report "${INIT_DIR}" )
 fi
 
-# Per the docs at https://plugins.jenkins.io/docker-plugin/, this needs to be our last line
-say "Launching command: [${@}] ..."
-exec "${@}"
+if [ ${#} -gt 0 ] ; then
+	# Per the docs at https://plugins.jenkins.io/docker-plugin/, this needs to be our last line
+	say "Launching command: [${@}] ..."
+	exec "${@}"
+else
+	say "Configuration complete - no command given to run"
+fi
