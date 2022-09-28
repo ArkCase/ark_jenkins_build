@@ -8,8 +8,11 @@ INIT_DIR="/init.d"
 
 trap cleanup EXIT
 
+set -ou pipefail
+
 GLOBAL_OUTPUT=()
 
+SILENT="${SILENT:-false}"
 case "${SILENT,,}" in
 	false | true ) ;;
 	* ) SILENT="false" ;;
@@ -72,7 +75,7 @@ configure_tools() {
 		TOOL="${TOOL^^}"
 		# Swap out dashes for underscores
 		TOOL="${TOOL/-/_}"
-		VER="${!TOOL}"
+		VER="${!TOOL:-""}"
 
 		# If no version is given for the tool, then we use the ${LATEST} marker
 		if [ -z "${VER}" ] ; then
@@ -150,7 +153,7 @@ sanitize_path() {
 	declare -A ENTRIES
 	while read entry ; do
 		[ -z "${entry}" ] && continue
-		[ -n "${ENTRIES[${entry}]}" ] && continue
+		[ -n "${ENTRIES[${entry}]:-""}" ] && continue
 		[ -n "${NEW_PATH}" ] && NEW_PATH+=":"
 		NEW_PATH+="${entry}"
 		ENTRIES[${entry}]="${entry}"
@@ -266,8 +269,8 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 	TOOL_HOME="$(eval echo -n '$'"{${TOOL}_HOME}")"
 
 	# Tool home is now ${TOOL_DIR}/${TOOL_NAME}/${TOOL_VERSION}, so figure out the values
-	TOOL_VER="$(basename "${TOOL_HOME}")"
-	TOOL_NAME="$(basename "$(dirname "${TOOL_HOME}")")"
+	TOOL_VER="$(/usr/bin/basename "${TOOL_HOME}")"
+	TOOL_NAME="$(/usr/bin/basename "$(/usr/bin/dirname "${TOOL_HOME}")")"
 
 	CFG_PARAMS=()
 	CFG_PARAMS_STACK=("${TOOL_VER}" "${TOOL_NAME}")
@@ -282,7 +285,7 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 		if [ -f "${CFG}" ]; then
 			. "${CFG}" "${CFG_PARAMS[@]}" || fail "Failed to apply the configurations from [${CFG}] for [${CFG_PARAMS[@]}] ..."
 		fi
-		CFG_PARAMS=("${CFG_PARAMS_STACK[${i}]}" "${CFG_PARAMS[@]}")
+		[ ${i} -lt "${#CFG_PARAMS_STACK[@]}" ] && CFG_PARAMS=("${CFG_PARAMS_STACK[${i}]}" "${CFG_PARAMS[@]}")
 		(( i++ ))
 
 		# If this script wants the parent configuration script(s) to be ignored
