@@ -131,7 +131,7 @@ configure_tools() {
 		TOOL_BIN="${ACTUAL}/bin"
 		[ -d "${TOOL_BIN}" ] && PATHS+=("${TOOL_BIN}")
 		OUT+=("${TOOL}/${VER}/${TOOL_BIN:+bin}")
-	done < <(/usr/bin/find -L "${TOOL_DIR}" -mindepth 1 -maxdepth 1 -type d)
+	done < <(/usr/bin/find -L "${TOOL_DIR}" -mindepth 1 -maxdepth 1 -type d -not -name bin)
 
 	if [ ${#ERRORS[@]} -ne 0 ] ; then
 		for E in "${ERRORS[@]}" ; do
@@ -250,6 +250,7 @@ for P in "${NEW_PATHS[@]}" ; do
 	[ -n "${NEW_PATH}" ] && NEW_PATH+=":"
 	NEW_PATH+="${P}"
 done
+NEW_PATH="${TOOL_DIR}/bin:${NEW_PATH}"
 
 # We use sanitize_path to end up with a clean path with no duplicate or empty entries
 # We prioritize the new path to give opportunity to override system-default tools
