@@ -101,9 +101,8 @@ RUN apt-get update && \
 #
 # Create the user and their home
 #
-RUN groupadd --system "build"
 RUN groupadd --gid "${APP_GID}" "${APP_GROUP}"
-RUN useradd --uid "${APP_UID}" --gid "${APP_GID}" --groups "build" -m --home-dir "/home/${APP_USER}" "${APP_USER}"
+RUN useradd --uid "${APP_UID}" --gid "${APP_GID}" --groups "${APP_GROUP}" -m --home-dir "/home/${APP_USER}" "${APP_USER}"
 
 #
 # Add the configure and entrypoint scripts
@@ -121,6 +120,13 @@ RUN chmod 0640 /etc/sudoers.d/00-build
 # Now do the configurations for the actual user
 #
 USER "${APP_USER}"
+
+#
+# Add the Maven master password
+#
+RUN mkdir -p "/home/${APP_USER}/.m2"
+COPY --chown="${APP_USER}:${APP_GROUP}" settings-security.xml "/home/${APP_USER}/.m2"
+RUN chmod 0640 "/home/${APP_USER}/.m2/settings-security.xml"
 
 #
 # Final parameters
