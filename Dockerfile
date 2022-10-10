@@ -113,8 +113,8 @@ RUN chmod 0755 /configure /entrypoint
 #
 # Add the sudo configuration for the build group
 #
-COPY --chown=root:root 00-build /etc/sudoers.d
-RUN chmod 0640 /etc/sudoers.d/00-build
+COPY --chown=root:root 00-builder /etc/sudoers.d
+RUN chmod 0640 /etc/sudoers.d/00-builder
 
 #
 # Now do the configurations for the actual user
