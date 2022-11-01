@@ -122,13 +122,6 @@ RUN chmod 0640 /etc/sudoers.d/00-builder
 USER "${APP_USER}"
 
 #
-# Add the Maven master password
-#
-RUN mkdir -p "/home/${APP_USER}/.m2"
-COPY --chown="${APP_USER}:${APP_GROUP}" settings-security.xml "/home/${APP_USER}/.m2"
-RUN chmod 0640 "/home/${APP_USER}/.m2/settings-security.xml"
-
-#
 # Final parameters
 #
 VOLUME      [ "/init.d" ]
