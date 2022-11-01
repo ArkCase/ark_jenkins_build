@@ -1,5 +1,10 @@
 #!/bin/bash
 
+case "${DEBUG,,}" in
+	on | true | yes ) set -x ;;
+	* ) ;;
+esac
+
 LATEST="latest"
 CONFIG=".configure"
 IGNORE=".ignore"
@@ -278,6 +283,7 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 	CFG_PARAMS_STACK=("${TOOL_VER}" "${TOOL_NAME}")
 	CANDIDATES=("${TOOL_HOME}" "${TOOL_HOME%/*}" "${TOOL_DIR}")
 	(( i = 0 ))
+	pushd "${TOOL_HOME}"
 	for CANDIDATE in "${CANDIDATES[@]}" ; do
 		# Clear this flag - needs to be done every iteration
 		IGNORE_PARENT=""
@@ -294,6 +300,7 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 		# it can set the IGNORE_PARENT variable to "true"
 		[ "${IGNORE_PARENT,,}" == "true" ] && break
 	done
+	popd
 done
 
 # Allow for initialization scripts to be added
