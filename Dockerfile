@@ -101,8 +101,9 @@ RUN apt-get update && \
 #
 # Create the user and their home
 #
+RUN groupadd --system "build"
 RUN groupadd --gid "${APP_GID}" "${APP_GROUP}"
-RUN useradd --uid "${APP_UID}" --gid "${APP_GID}" --groups "${APP_GROUP}" -m --home-dir "/home/${APP_USER}" "${APP_USER}"
+RUN useradd --uid "${APP_UID}" --gid "${APP_GID}" --groups "build" -m --home-dir "/home/${APP_USER}" "${APP_USER}"
 
 #
 # Add the configure and entrypoint scripts
@@ -113,8 +114,8 @@ RUN chmod 0755 /configure /entrypoint
 #
 # Add the sudo configuration for the build group
 #
-COPY --chown=root:root 00-builder /etc/sudoers.d
-RUN chmod 0640 /etc/sudoers.d/00-builder
+COPY --chown=root:root 00-build /etc/sudoers.d
+RUN chmod 0640 /etc/sudoers.d/00-build
 
 #
 # Now do the configurations for the actual user
