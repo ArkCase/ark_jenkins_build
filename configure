@@ -124,7 +124,8 @@ configure_tools() {
 		# This is the actual version we're using
 		VER="${ACTUAL##*/}"
 
-		# If the version is disabled, simply ignore it (this should be impossible)
+		# If the version is disabled, simply ignore it (this should be impossible, because
+		# list_versions already accounted for this)
 		[ -e "${ACTUAL}/${IGNORE}" ] && continue
 
 		# If there's a bin directory within, we will add it to the system path (eventually)
