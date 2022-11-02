@@ -1,5 +1,10 @@
 #!/bin/bash
 
+case "${DEBUG,,}" in
+	on | true | yes ) set -x ;;
+	* ) ;;
+esac
+
 LATEST="latest"
 CONFIG=".configure"
 IGNORE=".ignore"
@@ -8,8 +13,11 @@ INIT_DIR="/init.d"
 
 trap cleanup EXIT
 
+set -ou pipefail
+
 GLOBAL_OUTPUT=()
 
+SILENT="${SILENT:-false}"
 case "${SILENT,,}" in
 	false | true ) ;;
 	* ) SILENT="false" ;;
@@ -72,7 +80,7 @@ configure_tools() {
 		TOOL="${TOOL^^}"
 		# Swap out dashes for underscores
 		TOOL="${TOOL/-/_}"
-		VER="${!TOOL}"
+		VER="${!TOOL:-""}"
 
 		# If no version is given for the tool, then we use the ${LATEST} marker
 		if [ -z "${VER}" ] ; then
@@ -121,14 +129,15 @@ configure_tools() {
 		# This is the actual version we're using
 		VER="${ACTUAL##*/}"
 
-		# If the version is disabled, simply ignore it (this should be impossible)
+		# If the version is disabled, simply ignore it (this should be impossible, because
+		# list_versions already accounted for this)
 		[ -e "${ACTUAL}/${IGNORE}" ] && continue
 
 		# If there's a bin directory within, we will add it to the system path (eventually)
 		TOOL_BIN="${ACTUAL}/bin"
 		[ -d "${TOOL_BIN}" ] && PATHS+=("${TOOL_BIN}")
 		OUT+=("${TOOL}/${VER}/${TOOL_BIN:+bin}")
-	done < <(/usr/bin/find -L "${TOOL_DIR}" -mindepth 1 -maxdepth 1 -type d)
+	done < <(/usr/bin/find -L "${TOOL_DIR}" -mindepth 1 -maxdepth 1 -type d -not -name bin)
 
 	if [ ${#ERRORS[@]} -ne 0 ] ; then
 		for E in "${ERRORS[@]}" ; do
@@ -150,7 +159,7 @@ sanitize_path() {
 	declare -A ENTRIES
 	while read entry ; do
 		[ -z "${entry}" ] && continue
-		[ -n "${ENTRIES[${entry}]}" ] && continue
+		[ -n "${ENTRIES[${entry}]:-""}" ] && continue
 		[ -n "${NEW_PATH}" ] && NEW_PATH+=":"
 		NEW_PATH+="${entry}"
 		ENTRIES[${entry}]="${entry}"
@@ -247,6 +256,7 @@ for P in "${NEW_PATHS[@]}" ; do
 	[ -n "${NEW_PATH}" ] && NEW_PATH+=":"
 	NEW_PATH+="${P}"
 done
+NEW_PATH="${TOOL_DIR}/bin:${NEW_PATH}"
 
 # We use sanitize_path to end up with a clean path with no duplicate or empty entries
 # We prioritize the new path to give opportunity to override system-default tools
@@ -266,13 +276,14 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 	TOOL_HOME="$(eval echo -n '$'"{${TOOL}_HOME}")"
 
 	# Tool home is now ${TOOL_DIR}/${TOOL_NAME}/${TOOL_VERSION}, so figure out the values
-	TOOL_VER="$(basename "${TOOL_HOME}")"
-	TOOL_NAME="$(basename "$(dirname "${TOOL_HOME}")")"
+	TOOL_VER="$(/usr/bin/basename "${TOOL_HOME}")"
+	TOOL_NAME="$(/usr/bin/basename "$(/usr/bin/dirname "${TOOL_HOME}")")"
 
 	CFG_PARAMS=()
 	CFG_PARAMS_STACK=("${TOOL_VER}" "${TOOL_NAME}")
 	CANDIDATES=("${TOOL_HOME}" "${TOOL_HOME%/*}" "${TOOL_DIR}")
 	(( i = 0 ))
+	pushd "${TOOL_HOME}"
 	for CANDIDATE in "${CANDIDATES[@]}" ; do
 		# Clear this flag - needs to be done every iteration
 		IGNORE_PARENT=""
@@ -282,13 +293,14 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 		if [ -f "${CFG}" ]; then
 			. "${CFG}" "${CFG_PARAMS[@]}" || fail "Failed to apply the configurations from [${CFG}] for [${CFG_PARAMS[@]}] ..."
 		fi
-		CFG_PARAMS=("${CFG_PARAMS_STACK[${i}]}" "${CFG_PARAMS[@]}")
+		[ ${i} -lt "${#CFG_PARAMS_STACK[@]}" ] && CFG_PARAMS=("${CFG_PARAMS_STACK[${i}]}" "${CFG_PARAMS[@]}")
 		(( i++ ))
 
 		# If this script wants the parent configuration script(s) to be ignored
 		# it can set the IGNORE_PARENT variable to "true"
 		[ "${IGNORE_PARENT,,}" == "true" ] && break
 	done
+	popd
 done
 
 # Allow for initialization scripts to be added
@@ -297,6 +309,10 @@ if [ -d "${INIT_DIR}" ] ; then
 	( cd / && /usr/bin/run-parts --report "${INIT_DIR}" )
 fi
 
-# Per the docs at https://plugins.jenkins.io/docker-plugin/, this needs to be our last line
-say "Launching command: [${@}] ..."
-exec "${@}"
+if [ ${#} -gt 0 ] ; then
+	# Per the docs at https://plugins.jenkins.io/docker-plugin/, this needs to be our last line
+	say "Launching command: [${@}] ..."
+	exec "${@}"
+else
+	say "Configuration complete - no command given to run"
+fi
