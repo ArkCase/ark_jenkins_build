@@ -42,6 +42,7 @@ RUN apt-get update && \
 		curl \
 		dirmngr \
 		default-libmysqlclient-dev \
+		dos2unix \
 		dpkg-dev \
 		file \
 		g++ \
@@ -86,6 +87,7 @@ RUN apt-get update && \
 		openssl \
 		patch \
 		procps \
+		python3-pip \
 		sshpass \
 		subversion \
 		sudo \
