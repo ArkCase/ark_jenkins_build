@@ -49,6 +49,7 @@ RUN apt-get update && \
 		gcc \
 		gcc \
 		git \
+		git-flow \
 		gnupg \
 		imagemagick \
 		jq \
