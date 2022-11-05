@@ -310,6 +310,18 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 	popd
 done
 
+deploy_config_files() {
+	local SRC_DIR=""
+	[ ${#} -gt 0 ] && SRC_DIR="${1}"
+	[ -z "${SRC_DIR}" ] && SRC_DIR="${PWD}"
+	[ -e "${SRC_DIR}" ] || return 1
+	[ -d "${SRC_DIR}" ] || return 2
+	[ -r "${SRC_DIR}" ] || return 3
+	[ -x "${SRC_DIR}" ] || return 4
+	tar -C "${HOME}" -xvf <(tar -C "${SRC_DIR}" --exclude "./${CONFIG}" -cf - .)
+	return ${?}
+}
+
 # Now, we apply any specific configuration files we want to apply. These are generally
 # files that may or may not affect tool execution, but don't really need to be bound
 # to a specific tool, nor tied to a specific init script.
@@ -328,10 +340,12 @@ while read CONF ; do
 		# If it lacks a script to apply the configurations, just copy the contents of the
 		# directory straight into ${HOME}. Careful! This can clobber other stuff!
 		say "Configuration [${CONF_NAME}] has no script, dumping the contents into [${HOME}]..."
-		tar -C "${HOME}" -xvf <(tar -cf - .)
+		deploy_config_files
 	fi
 	popd
 done < <(find "${CONF_DIR}" -mindepth 1 -maxdepth 1 -type d)
+
+unset -f deploy_config_files
 
 # Allow for initialization scripts to be added
 if [ -d "${INIT_DIR}" ] ; then
