@@ -8,6 +8,8 @@ esac
 LATEST="latest"
 CONFIG=".configure"
 IGNORE=".ignore"
+NO_COW=".no-cow"
+CACHE_DIR="/cache"
 TOOL_DIR="/tools"
 INIT_DIR="/init.d"
 
@@ -185,7 +187,7 @@ is_privileged_container() {
 
 # Mount an overlay folder for tools and cache?
 export PRIVILEGED="false"
-COWS=("/tools" "/cache")
+COWS=("${TOOL_DIR}" "${CACHE_DIR}")
 if is_privileged_container ; then
 	say "Running in privileged mode, creating the COW directories"
 	PRIVILEGED="true"
@@ -197,6 +199,8 @@ if is_privileged_container ; then
 			say "The mountpoint directory [${MOUNTPOINT}] does not exist ... will not create an overlay for it"
 			continue
 		fi
+
+		[ -f "${MOUNTPOINT}/${NO_COW}" ] && say "The mountpoint [${MOUNTPOINT}] has a ${NO_COW} marker, so the COW infrastructure will not be set up for it" && continue
 
 		# Second - is this already mounted as an overlay?
 		if /usr/bin/sudo -n /usr/bin/findmnt -t overlay -J "${MOUNTPOINT}" &>/dev/null ; then
