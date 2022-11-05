@@ -9,8 +9,11 @@ LATEST="latest"
 CONFIG=".configure"
 IGNORE=".ignore"
 NO_COW=".no-cow"
+
 CACHE_DIR="/cache"
 TOOL_DIR="/tools"
+
+CONF_DIR="/conf.d"
 INIT_DIR="/init.d"
 
 trap cleanup EXIT
@@ -306,6 +309,29 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 	done
 	popd
 done
+
+# Now, we apply any specific configuration files we want to apply. These are generally
+# files that may or may not affect tool execution, but don't really need to be bound
+# to a specific tool, nor tied to a specific init script.
+while read CONF ; do
+	CONF_NAME="$(/usr/bin/basename "${CONF}")"
+
+	# If it's to be ignored, do so ...
+	[ -e "${CONF}/${IGNORE}" ] && say "Configuration [${CONF_NAME}] is to be ignored, skipping." && continue
+
+	pushd "${CONF}"
+	if [ -e "${CONF}/${CONFIG}" ] ; then
+		# The configuration script exists. So execute it
+		say "Configuration [${CONF_NAME}] has a script, executing it..."
+		. "${CONFIG}" || fail "Failed to execute the configuration script for [${CONF_NAME}]"
+	else
+		# If it lacks a script to apply the configurations, just copy the contents of the
+		# directory straight into ${HOME}. Careful! This can clobber other stuff!
+		say "Configuration [${CONF_NAME}] has no script, dumping the contents into [${HOME}]..."
+		tar -C "${HOME}" -xvf <(tar -cf - .)
+	fi
+	popd
+done < <(find "${CONF_DIR}" -mindepth 1 -maxdepth 1 -type d)
 
 # Allow for initialization scripts to be added
 if [ -d "${INIT_DIR}" ] ; then

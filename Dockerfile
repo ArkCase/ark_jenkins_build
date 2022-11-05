@@ -128,6 +128,7 @@ USER "${APP_USER}"
 #
 # Final parameters
 #
+VOLUME      [ "/conf.d" ]
 VOLUME      [ "/init.d" ]
 VOLUME      [ "/cache" ]
 VOLUME      [ "/tools" ]
