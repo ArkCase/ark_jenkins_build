@@ -5,7 +5,7 @@ FROM ubuntu:latest
 #
 ARG ARCH="amd64"
 ARG OS="linux"
-ARG VER="1.0.0"
+ARG VER="1.1.0"
 ARG PKG="jenkins-build"
 ARG APP_USER="jenkins"
 ARG APP_UID="1000"
@@ -42,12 +42,14 @@ RUN apt-get update && \
 		curl \
 		dirmngr \
 		default-libmysqlclient-dev \
+		dos2unix \
 		dpkg-dev \
 		file \
 		g++ \
 		gcc \
 		gcc \
 		git \
+		git-flow \
 		gnupg \
 		imagemagick \
 		jq \
@@ -86,6 +88,7 @@ RUN apt-get update && \
 		openssl \
 		patch \
 		procps \
+		python3-pip \
 		sshpass \
 		subversion \
 		sudo \
@@ -125,6 +128,7 @@ USER "${APP_USER}"
 #
 # Final parameters
 #
+VOLUME      [ "/conf.d" ]
 VOLUME      [ "/init.d" ]
 VOLUME      [ "/cache" ]
 VOLUME      [ "/tools" ]

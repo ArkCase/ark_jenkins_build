@@ -8,7 +8,12 @@ esac
 LATEST="latest"
 CONFIG=".configure"
 IGNORE=".ignore"
+NO_COW=".no-cow"
+
+CACHE_DIR="/cache"
 TOOL_DIR="/tools"
+
+CONF_DIR="/conf.d"
 INIT_DIR="/init.d"
 
 trap cleanup EXIT
@@ -185,18 +190,20 @@ is_privileged_container() {
 
 # Mount an overlay folder for tools and cache?
 export PRIVILEGED="false"
-COWS=("/tools" "/cache")
+COWS=("${TOOL_DIR}" "${CACHE_DIR}")
 if is_privileged_container ; then
 	say "Running in privileged mode, creating the COW directories"
 	PRIVILEGED="true"
 	for MOUNTPOINT in "${COWS[@]}"; do
-		MOUNTPOINT="$(readlink -f "${MOUNTPOINT}")"
+		MOUNTPOINT="$(/usr/bin/readlink -f "${MOUNTPOINT}")"
 
 		# First - does the mountpoint exist?
 		if [ ! -d "${MOUNTPOINT}" ] ; then
 			say "The mountpoint directory [${MOUNTPOINT}] does not exist ... will not create an overlay for it"
 			continue
 		fi
+
+		[ -f "${MOUNTPOINT}/${NO_COW}" ] && say "The mountpoint [${MOUNTPOINT}] has a ${NO_COW} marker, so the COW infrastructure will not be set up for it" && continue
 
 		# Second - is this already mounted as an overlay?
 		if /usr/bin/sudo -n /usr/bin/findmnt -t overlay -J "${MOUNTPOINT}" &>/dev/null ; then
@@ -302,6 +309,43 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 	done
 	popd
 done
+
+deploy_config_files() {
+	local SRC_DIR=""
+	[ ${#} -gt 0 ] && SRC_DIR="${1}"
+	[ -z "${SRC_DIR}" ] && SRC_DIR="${PWD}"
+	[ -e "${SRC_DIR}" ] || return 1
+	[ -d "${SRC_DIR}" ] || return 2
+	[ -r "${SRC_DIR}" ] || return 3
+	[ -x "${SRC_DIR}" ] || return 4
+	/usr/bin/tar -C "${HOME}" -xvf <(/usr/bin/tar -C "${SRC_DIR}" --exclude "./${CONFIG}" -cf - .)
+	return ${?}
+}
+
+# Now, we apply any specific configuration files we want to apply. These are generally
+# files that may or may not affect tool execution, but don't really need to be bound
+# to a specific tool, nor tied to a specific init script.
+while read CONF ; do
+	CONF_NAME="$(/usr/bin/basename "${CONF}")"
+
+	# If it's to be ignored, do so ...
+	[ -e "${CONF}/${IGNORE}" ] && say "Configuration [${CONF_NAME}] is to be ignored, skipping." && continue
+
+	pushd "${CONF}"
+	if [ -e "${CONF}/${CONFIG}" ] ; then
+		# The configuration script exists. So execute it
+		say "Configuration [${CONF_NAME}] has a script, executing it..."
+		. "${CONFIG}" || fail "Failed to execute the configuration script for [${CONF_NAME}]"
+	else
+		# If it lacks a script to apply the configurations, just copy the contents of the
+		# directory straight into ${HOME}. Careful! This can clobber other stuff!
+		say "Configuration [${CONF_NAME}] has no script, dumping the contents into [${HOME}]..."
+		deploy_config_files
+	fi
+	popd
+done < <(/usr/bin/find "${CONF_DIR}" -mindepth 1 -maxdepth 1 -type d)
+
+unset -f deploy_config_files
 
 # Allow for initialization scripts to be added
 if [ -d "${INIT_DIR}" ] ; then
