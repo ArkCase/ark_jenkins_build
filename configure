@@ -195,7 +195,7 @@ if is_privileged_container ; then
 	say "Running in privileged mode, creating the COW directories"
 	PRIVILEGED="true"
 	for MOUNTPOINT in "${COWS[@]}"; do
-		MOUNTPOINT="$(readlink -f "${MOUNTPOINT}")"
+		MOUNTPOINT="$(/usr/bin/readlink -f "${MOUNTPOINT}")"
 
 		# First - does the mountpoint exist?
 		if [ ! -d "${MOUNTPOINT}" ] ; then
@@ -318,7 +318,7 @@ deploy_config_files() {
 	[ -d "${SRC_DIR}" ] || return 2
 	[ -r "${SRC_DIR}" ] || return 3
 	[ -x "${SRC_DIR}" ] || return 4
-	tar -C "${HOME}" -xvf <(tar -C "${SRC_DIR}" --exclude "./${CONFIG}" -cf - .)
+	/usr/bin/tar -C "${HOME}" -xvf <(/usr/bin/tar -C "${SRC_DIR}" --exclude "./${CONFIG}" -cf - .)
 	return ${?}
 }
 
@@ -343,7 +343,7 @@ while read CONF ; do
 		deploy_config_files
 	fi
 	popd
-done < <(find "${CONF_DIR}" -mindepth 1 -maxdepth 1 -type d)
+done < <(/usr/bin/find "${CONF_DIR}" -mindepth 1 -maxdepth 1 -type d)
 
 unset -f deploy_config_files
 
