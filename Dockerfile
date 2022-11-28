@@ -5,7 +5,7 @@ FROM ubuntu:latest
 #
 ARG ARCH="amd64"
 ARG OS="linux"
-ARG VER="1.1.0"
+ARG VER="1.2.0"
 ARG PKG="jenkins-build"
 ARG APP_USER="jenkins"
 ARG APP_UID="1000"
@@ -80,7 +80,6 @@ RUN apt-get update && \
 		libxml2-dev \
 		libxslt-dev \
 		libyaml-dev \
-		make \
 		make \
 		mercurial \
 		netbase \
