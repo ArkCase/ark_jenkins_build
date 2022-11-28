@@ -102,6 +102,7 @@ configure_tools() {
 		# If the tool is disabled, we simply skip it
 		[ -e "${tool}/${IGNORE}" ] && continue
 
+		# Find the available versions
 		readarray -t AVAILABLE < <(list_versions "${tool}")
 
 		# If there are no tools in there
@@ -116,11 +117,12 @@ configure_tools() {
 			continue
 		fi
 
+		local TOOL_VERSION="${tool}/${VER}"
 		# If there's no "latest" link, we choose the last version in the array
-		[ "${VER}" == "${LATEST}" ] && [ ! -d "${tool}/${VER}" ] && VER="${AVAILABLE[-1]}"
+		[ "${VER}" == "${LATEST}" ] && [ ! -d "${TOOL_VERSION}" ] && VER="${AVAILABLE[-1]}"
 
 		# If the variable is set, then ${tool}/${VER} must exist and be a folder (or link to one)
-		if [ ! -d "${tool}/${VER}" ] ; then
+		if [ ! -d "${TOOL_VERSION}" ] ; then
 			# Version does not exist ... EXPLODE!!
 			ERRORS+=("There is no version [${VER}] for ${TOOL} - only these versions are available: ${AVAILABLE[@]}")
 			continue
@@ -129,7 +131,7 @@ configure_tools() {
 		# The version directory exists, so use it
 
 		# We use readlink -f to resolve the actual path for the tool before configuring it
-		ACTUAL="$(/usr/bin/readlink -f "${tool}/${VER}")"
+		ACTUAL="$(/usr/bin/readlink -f "${TOOL_VERSION}")"
 
 		# This is the actual version we're using
 		VER="${ACTUAL##*/}"
@@ -240,7 +242,7 @@ for TOOL in "${TOOLS[@]}" ; do
 	IFS="/" read tool version bin <<< "${TOOL}"
 
 	TOOL_HOME="${TOOL_DIR}/${tool,,}/${version}"
-	[ -n "${bin}" ] && NEW_PATHS+=("${TOOL_HOME}/bin")
+	[ -n "${bin}" ] && NEW_PATHS+=("${TOOL_HOME}/${bin}")
 
 	TOOL_NAMES+=("${tool}")
 	TOOL_HOMES+=("${tool}_HOME=\"${TOOL_HOME}\"")
@@ -310,42 +312,33 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 	popd
 done
 
-deploy_config_files() {
-	local SRC_DIR=""
-	[ ${#} -gt 0 ] && SRC_DIR="${1}"
-	[ -z "${SRC_DIR}" ] && SRC_DIR="${PWD}"
-	[ -e "${SRC_DIR}" ] || return 1
-	[ -d "${SRC_DIR}" ] || return 2
-	[ -r "${SRC_DIR}" ] || return 3
-	[ -x "${SRC_DIR}" ] || return 4
-	/usr/bin/tar -C "${HOME}" -xvf <(/usr/bin/tar -C "${SRC_DIR}" --exclude "./${CONFIG}" -cf - .)
-	return ${?}
-}
-
 # Now, we apply any specific configuration files we want to apply. These are generally
 # files that may or may not affect tool execution, but don't really need to be bound
 # to a specific tool, nor tied to a specific init script.
 while read CONF ; do
 	CONF_NAME="$(/usr/bin/basename "${CONF}")"
 
+	# If it's not accessible, skip it ...
+	[ -r "${CONF}" ] || { say "Configuration [${CONF_NAME}] is not readable, skipping." ; continue ; }
+	[ -x "${CONF}" ] || { say "Configuration [${CONF_NAME}] is not accessible, skipping." ; continue ; }
+
 	# If it's to be ignored, do so ...
 	[ -e "${CONF}/${IGNORE}" ] && say "Configuration [${CONF_NAME}] is to be ignored, skipping." && continue
 
 	pushd "${CONF}"
-	if [ -e "${CONF}/${CONFIG}" ] ; then
+	say "Deploying the configurations from [${CONF_NAME}] into [${HOME}]..."
+	/usr/bin/tar -C "${HOME}" -xvf <(/usr/bin/tar --exclude "./${CONFIG}" -cf - .)
+	if [ -e "${CONFIG}" ] ; then
 		# The configuration script exists. So execute it
-		say "Configuration [${CONF_NAME}] has a script, executing it..."
-		. "${CONFIG}" || fail "Failed to execute the configuration script for [${CONF_NAME}]"
-	else
-		# If it lacks a script to apply the configurations, just copy the contents of the
-		# directory straight into ${HOME}. Careful! This can clobber other stuff!
-		say "Configuration [${CONF_NAME}] has no script, dumping the contents into [${HOME}]..."
-		deploy_config_files
+		say "\tConfiguration [${CONF_NAME}] has a script, sourcing it..."
+		CONFIGURE_SCRIPT="$(readlink -e "${CONFIG}")"
+		[ ${?} -eq 0 ] || fail "Failed to canonicalize the path for [${CONF}/${CONFIG}]"
+		pushd "${HOME}"
+		. "${CONFIGURE_SCRIPT}" || fail "Failed to execute the configuration script for [${CONF_NAME}]"
+		popd
 	fi
 	popd
 done < <(/usr/bin/find "${CONF_DIR}" -mindepth 1 -maxdepth 1 -type d)
-
-unset -f deploy_config_files
 
 # Allow for initialization scripts to be added
 if [ -d "${INIT_DIR}" ] ; then
