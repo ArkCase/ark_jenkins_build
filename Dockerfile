@@ -82,6 +82,7 @@ RUN apt-get update && \
 		libyaml-dev \
 		make \
 		mercurial \
+		mutt \
 		netbase \
 		openssh-client \
 		openssl \
