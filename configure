@@ -1,5 +1,8 @@
 #!/bin/bash
 
+set -ou pipefail
+
+DEBUG="${DEBUG:-false}"
 case "${DEBUG,,}" in
 	on | true | yes ) set -x ;;
 	* ) ;;
@@ -17,8 +20,6 @@ CONF_DIR="/conf.d"
 INIT_DIR="/init.d"
 
 trap cleanup EXIT
-
-set -ou pipefail
 
 GLOBAL_OUTPUT=()
 

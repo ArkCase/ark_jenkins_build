@@ -5,7 +5,7 @@ FROM ubuntu:latest
 #
 ARG ARCH="amd64"
 ARG OS="linux"
-ARG VER="1.2.1"
+ARG VER="1.2.2"
 ARG PKG="jenkins-build"
 ARG APP_USER="jenkins"
 ARG APP_UID="1000"
@@ -78,6 +78,7 @@ RUN apt-get update && \
 		libtool \
 		libwebp-dev \
 		libxml2-dev \
+		libxml2-utils \
 		libxslt-dev \
 		libyaml-dev \
 		make \
