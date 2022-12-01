@@ -27,6 +27,7 @@ LABEL IMAGE_SOURCE="https://github.com/ArkCase/ark_jenkins_build"
 ENV APP_USER="${APP_USER}"
 ENV APP_UID="${APP_UID}"
 ENV APP_GID="${APP_GID}"
+ENV APP_VER="${VER}"
 
 #
 # O/S updates, and base tools
