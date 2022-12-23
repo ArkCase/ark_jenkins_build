@@ -33,6 +33,8 @@ cleanup() {
 	for l in "${GLOBAL_OUTPUT[@]}" ; do
 		echo "${l}"
 	done
+	# This is only done to clean up the value of ${OLDPWD}
+	cd .
 }
 
 say() {
@@ -348,7 +350,9 @@ if [ -d "${INIT_DIR}" ] ; then
 fi
 
 if [ ${#} -gt 0 ] ; then
-	# Per the docs at https://plugins.jenkins.io/docker-plugin/, this needs to be our last line
+	# This cleans up OLDPWD, for security
+	cd .
+
 	say "Launching command: [${@}] ..."
 	exec "${@}"
 else
