@@ -193,6 +193,10 @@ is_privileged_container() {
 	return "${RET}"
 }
 
+# First things first: update the CA trusts, in case they're needed (only if SUDO is available)
+say "Updating CA certificate trusts..."
+sudo -n /usr/sbin/update-ca-certificates || say "ERROR: CA trusts not updated (no sudo access?) ... skipping"
+
 # Mount an overlay folder for tools and cache?
 export PRIVILEGED="false"
 COWS=("${TOOL_DIR}" "${CACHE_DIR}")
