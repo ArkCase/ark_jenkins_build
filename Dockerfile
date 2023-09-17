@@ -11,6 +11,8 @@ ARG APP_USER="jenkins"
 ARG APP_UID="1000"
 ARG APP_GROUP="builder"
 ARG APP_GID="1000"
+ARG GITHUB_KEYRING="https://cli.github.com/packages/githubcli-archive-keyring.gpg"
+ARG GITLAB_REPO="https://raw.githubusercontent.com/upciti/wakemeops/main/assets/install_repository"
 
 #
 # Some important labels
@@ -28,6 +30,15 @@ ENV APP_USER="${APP_USER}"
 ENV APP_UID="${APP_UID}"
 ENV APP_GID="${APP_GID}"
 ENV APP_VER="${VER}"
+
+#
+# Prep to make GitLab CLI and GitHub CLI available
+#
+RUN apt-get update && apt-get install -y curl && apt-get clean && rm -rf /var/lib/apt/lists/* && \
+	curl -fsSL -o /etc/apt/trusted.gpg.d/github-archive-keyring.gpg "${GITHUB_KEYRING}" && \
+	chmod go+r /etc/apt/trusted.gpg.d/github-archive-keyring.gpg && \
+	echo "deb [arch=$(dpkg --print-architecture)] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
+	curl -fsSL "${GITLAB_REPO}" | bash
 
 #
 # O/S updates, and base tools
@@ -50,8 +61,10 @@ RUN apt-get update && \
 		g++ \
 		gcc \
 		gcc \
+		gh \
 		git \
 		git-flow \
+		glab \
 		gnupg \
 		imagemagick \
 		jq \
