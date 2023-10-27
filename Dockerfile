@@ -6,7 +6,6 @@ FROM ubuntu:latest
 ARG ARCH="amd64"
 ARG OS="linux"
 ARG VER="1.2.6"
-ARG BLD="01"
 ARG PKG="jenkins-build"
 ARG APP_USER="jenkins"
 ARG APP_UID="1000"
