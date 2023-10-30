@@ -5,12 +5,15 @@ FROM ubuntu:latest
 #
 ARG ARCH="amd64"
 ARG OS="linux"
-ARG VER="1.2.6"
+ARG VER="1.3.0"
 ARG PKG="jenkins-build"
 ARG APP_USER="jenkins"
 ARG APP_UID="1000"
 ARG APP_GROUP="builder"
 ARG APP_GID="1000"
+ARG DOCKER_KEYRING="https://download.docker.com/linux/ubuntu/gpg"
+ARG DOCKER_DEB_DISTRO="jammy"
+ARG DOCKER_PACKAGE_REPO="https://download.docker.com/linux/ubuntu"
 ARG GITHUB_KEYRING="https://cli.github.com/packages/githubcli-archive-keyring.gpg"
 ARG GITLAB_REPO="https://raw.githubusercontent.com/upciti/wakemeops/main/assets/install_repository"
 
@@ -30,15 +33,27 @@ ENV APP_USER="${APP_USER}"
 ENV APP_UID="${APP_UID}"
 ENV APP_GID="${APP_GID}"
 ENV APP_VER="${VER}"
+ENV TRUSTED_GPG_DIR="/etc/apt/trusted.gpg.d"
+ENV APT_SOURCES_DIR="/etc/apt/sources.list.d"
 
 #
 # Prep to make GitLab CLI and GitHub CLI available
 #
-RUN apt-get update && apt-get install -y curl && apt-get clean && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && \
+    apt-get install -y \
+        curl gpg \
+      && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
 	curl -fsSL -o /etc/apt/trusted.gpg.d/github-archive-keyring.gpg "${GITHUB_KEYRING}" && \
 	chmod go+r /etc/apt/trusted.gpg.d/github-archive-keyring.gpg && \
 	echo "deb [arch=$(dpkg --print-architecture)] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
-	curl -fsSL "${GITLAB_REPO}" | bash
+	curl -fsSL "${GITLAB_REPO}" | bash && \
+    ( rm -f "${TRUSTED_GPG_DIR}/docker.gpg" &>/dev/null || true ) && \
+    curl -fsSL "${DOCKER_KEYRING}" | gpg --dearmor -o "${TRUSTED_GPG_DIR}/docker.gpg" && \
+    chmod a+r "${TRUSTED_GPG_DIR}/docker.gpg" && \
+    echo "deb [arch=${ARCH}] ${DOCKER_PACKAGE_REPO} ${DOCKER_DEB_DISTRO} stable" > "${APT_SOURCES_DIR}/docker.list"
+
 
 #
 # O/S updates, and base tools
@@ -52,10 +67,15 @@ RUN apt-get update && \
 		bzr \
 		ca-certificates \
 		ca-certificates-java \
+        containerd.io \
 		curl \
 		dirmngr \
 		default-libmysqlclient-dev \
 		dos2unix \
+        docker-buildx-plugin \
+        docker-compose-plugin \
+		docker-ce \
+		docker-ce-cli \
 		dpkg-dev \
 		file \
 		g++ \
@@ -115,14 +135,16 @@ RUN apt-get update && \
 		xz-utils \
 		zip \
 		zlib1g-dev \
-	&& apt-get clean && rm -rf /var/lib/apt/lists/*
+	  && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 #
 # Create the user and their home
 #
 RUN groupadd --system "build"
 RUN groupadd --gid "${APP_GID}" "${APP_GROUP}"
-RUN useradd --uid "${APP_UID}" --gid "${APP_GID}" --groups "build" -m --home-dir "/home/${APP_USER}" "${APP_USER}"
+RUN useradd --uid "${APP_UID}" --gid "${APP_GID}" --groups "build,docker" -m --home-dir "/home/${APP_USER}" "${APP_USER}"
 
 #
 # Add the configure and entrypoint scripts
