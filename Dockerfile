@@ -5,7 +5,7 @@ FROM ubuntu:latest
 #
 ARG ARCH="amd64"
 ARG OS="linux"
-ARG VER="1.3.2"
+ARG VER="1.3.3"
 ARG PKG="jenkins-build"
 ARG APP_USER="jenkins"
 ARG APP_UID="1000"
@@ -135,6 +135,7 @@ RUN apt-get update && \
         patch \
         procps \
         python3-pip \
+        rsync \
         sshpass \
         subversion \
         sudo \
