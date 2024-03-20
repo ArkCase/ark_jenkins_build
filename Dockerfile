@@ -5,7 +5,7 @@ FROM ubuntu:latest
 #
 ARG ARCH="amd64"
 ARG OS="linux"
-ARG VER="1.3.3"
+ARG VER="1.3.4"
 ARG PKG="jenkins-build"
 ARG APP_USER="jenkins"
 ARG APP_UID="1000"
