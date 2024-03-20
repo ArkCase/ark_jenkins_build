@@ -20,7 +20,10 @@ ARG K8S_PACKAGE_REPO="https://pkgs.k8s.io/core:/stable:/v${K8S_VER}/deb/"
 ARG HELM_VER="3.12.3"
 ARG HELM_SRC="https://get.helm.sh/helm-v${HELM_VER}-linux-amd64.tar.gz"
 ARG GITHUB_KEYRING="https://cli.github.com/packages/githubcli-archive-keyring.gpg"
+ARG GITHUB_REPO="https://cli.github.com/packages"
 ARG GITLAB_REPO="https://raw.githubusercontent.com/upciti/wakemeops/main/assets/install_repository"
+ARG YARN_KEYRING="https://dl.yarnpkg.com/debian/pubkey.gpg"
+ARG YARN_REPO="https://dl.yarnpkg.com/debian/"
 
 #
 # Some important labels
@@ -50,9 +53,11 @@ RUN apt-get update && \
       && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL -o /etc/apt/trusted.gpg.d/github-archive-keyring.gpg "${GITHUB_KEYRING}" && \
-    chmod go+r /etc/apt/trusted.gpg.d/github-archive-keyring.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture)] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
+    curl -fsSL -o /etc/apt/trusted.gpg.d/github-archive.gpg "${GITHUB_KEYRING}" && \
+    chmod go+r /etc/apt/trusted.gpg.d/github-archive.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture)] ${YARN_REPO} stable main" > /etc/apt/sources.list.d/yarn.list && \
+    curl -fsSL "${YARN_KEYRING}" | apt-key add - && \
+    echo "deb ${YARN_REPO} stable main" > /etc/apt/sources.list.d/yarn.list && \
     curl -fsSL "${GITLAB_REPO}" | bash && \
     ( rm -f "${TRUSTED_GPG_DIR}/docker.gpg" &>/dev/null || true ) && \
     curl -fsSL "${DOCKER_KEYRING}" | gpg --dearmor -o "${TRUSTED_GPG_DIR}/docker.gpg" && \
@@ -144,6 +149,7 @@ RUN apt-get update && \
         wget \
         xmlstarlet \
         xz-utils \
+        yarn \
         zip \
         zlib1g-dev \
       && \
