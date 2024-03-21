@@ -5,7 +5,7 @@ FROM ubuntu:latest
 #
 ARG ARCH="amd64"
 ARG OS="linux"
-ARG VER="1.3.4"
+ARG VER="1.3.5"
 ARG PKG="jenkins-build"
 ARG APP_USER="jenkins"
 ARG APP_UID="1000"
@@ -55,7 +55,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     curl -fsSL -o /etc/apt/trusted.gpg.d/github-archive.gpg "${GITHUB_KEYRING}" && \
     chmod go+r /etc/apt/trusted.gpg.d/github-archive.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture)] ${YARN_REPO} stable main" > /etc/apt/sources.list.d/yarn.list && \
+    echo "deb [arch=$(dpkg --print-architecture)] ${GITHUB_REPO} stable main" > /etc/apt/sources.list.d/github-cli.list && \
     curl -fsSL "${YARN_KEYRING}" | apt-key add - && \
     echo "deb ${YARN_REPO} stable main" > /etc/apt/sources.list.d/yarn.list && \
     curl -fsSL "${GITLAB_REPO}" | bash && \
