@@ -169,7 +169,7 @@ RUN apt-get update && \
 COPY --chown=root:root scripts/ /usr/local/bin
 
 #
-# Add AWS
+# Add AWS (no need to add it as a separate tool b/c we only ever need 1 version)
 #
 RUN mkdir -p "/aws" && \
     curl -fsSL "${AWS_SRC}" -o "/aws/awscliv2.zip" && \
@@ -180,12 +180,12 @@ RUN mkdir -p "/aws" && \
     rm -rf "/aws"
 
 #
-# Add AWX (need install --user?)
+# Add AWX (no need to add it as a separate tool b/c we only ever need 1 version)
 #
 RUN pip3 install "${AWX_SRC}"
 
 #
-# Add Git-LFS
+# Add Git-LFS (no need to add it as a separate tool b/c we only ever need 1 version)
 #
 RUN mkdir -p "/tmp/lfs" && \
     cd "/tmp/lfs" && \
@@ -195,7 +195,7 @@ RUN mkdir -p "/tmp/lfs" && \
     rm -rf "lfs"
 
 #
-# Install the Veracode API Wrapper
+# Install the Veracode API Wrapper (no need to add it as a separate tool b/c we only ever need 1 version)
 #
 ENV VCODE_HOME="/opt/vcode-${VCODE_VER}"
 RUN mvn-get "${VCODE_SRC}" "/tmp/veracode.zip" && \
@@ -203,7 +203,7 @@ RUN mvn-get "${VCODE_SRC}" "/tmp/veracode.zip" && \
     rm -rf "/tmp/veracode.zip"
 
 #
-# Execute the multiflavor tool installations
+# Execute the multiversion tool installations
 #
 COPY --chown=root:root scripts/install-tool /usr/local/bin
 ADD --chown=root:root tools /tools
