@@ -1,0 +1,89 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} releaseVersion newVersion"
+	exit 1
+}
+
+[ ${#} -ne 2 ] && usage
+
+RELEASE_VERSION="$(echo -n "${1}" | /usr/bin/tr -d '\n\r')"
+[ -z "${RELEASE_VERSION}" ] || fail "The release version may not be the empty string"
+NEW_VERSION="$(echo -n "${2}" | /usr/bin/tr -d '\n\r')"
+[ -z "${NEW_VERSION}" ] || fail "The new version may not be the empty string"
+
+compare_versions() {
+	local A="${1}"
+	local B="${1}"
+
+	local ARR=()
+	readarray -t ARR < <(echo -en "${A}\n${B}" | /usr/bin/sort -Vu)
+
+	# If they're the same version, we fail
+	[ ${#ARR[@]} -eq 2 ] || return 1
+
+	# If the first item doesn't match A, we fail
+	[ "${ARR[0]}" == "${A}" ] || return 2
+
+	# If the second item doesn't match B, we fail
+	[ "${ARR[1]}" == "${B}" ] || return 2
+
+	# They're correctly ordered ... is this enough? Do we also
+	# wish to enforce that the differences are only in major and minor?
+	return 0
+}
+
+compare_versions "${RELEASE_VERSION}" "${NEW_VERSION}"
+RC=${?}
+case ${RC} in
+	0 ) ;;
+	1 ) fail "The versions [${NEW_VERSION}] and [${RELEASE_VERSION}] are either identical" ;;
+	2 ) fail "The new version [${NEW_VERSION}] seems to be lesser than or equal to the release version [${RELEASE_VERSION}]" ;;
+esac
+
+set -euo pipefail
+
+# Ok ... we're ready to go, so do the git flow init
+"${BASEDIR}/gitflow.init"
+
+# Make sure we check out the development branch ...
+DEVELOP="$(git config gitflow.branch.develop)"
+if ! /usr/bin/git checkout "${DEVELOP}" &>/dev/null ; then
+	# This was not the branch pulled, so we have to pull it
+	/usr/bin/git checkout -b "${DEVELOP}"
+	/usr/bin/git pull
+fi
+
+# Start the git flow release. This starts the release,
+# and checks out the release branch
+/usr/bin/git flow release start "${RELEASE_VERSION}"
+
+# set the artifact's version to "${RELEASE_VERSION}"
+"${BASEDIR}/set-project-version" "${RELEASE_VERSION}"
+
+# Do we have changes to commit and push?
+/usr/bin/git diff-index --quiet HEAD -- || git commit -a -m "Version bump to ${RELEASE_VERSION}"
+/usr/bin/git push --set-upstream origin "$(git branch --show-current)"
+
+# Now we have to set the new version to the develop branch
+# check out the default development branch per git flow configurations
+/usr/bin/git checkout "${DEVELOP}"
+
+# set the default branch's version to ${NEW_VERSION}
+"${BASEDIR}/set-project-version" "${NEW_VERSION}"
+
+# commit and push the changes to the default branch
+# TODO: How should we handle this for repositories for which
+# pushing to the default branch is not allowed?
+/usr/bin/git diff-index --quiet HEAD -- || git commit -a -m "Version bump to ${NEW_VERSION}"
+/usr/bin/git push --set-upstream origin "$(git branch --show-current)"

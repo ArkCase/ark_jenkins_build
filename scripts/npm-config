@@ -1,0 +1,60 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+NPM="${NODE_HOME}/bin/npm"
+check_file_executable "${NPM}" || fail "No npm installed ... can't continue"
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} [npm-config-flags]"
+	echo -e "       (use npm config --help for more details)"
+	exit 1
+}
+
+[ ${#} -lt 1 ] && usage
+
+LOCATION_GIVEN="false"
+SET_GIVEN="false"
+for n in "${@}" ; do
+	case "${n}" in
+		-L | --location ) LOCATION_GIVEN="true" ;;
+		set ) SET_GIVEN="true" ;;
+	esac
+done
+
+#
+# If no location flag was given, then we autodetect where our
+# configurations must go into in order to be successfully used
+#
+LOCATION=()
+if ! ${LOCATION_GIVEN} && ${SET_GIVEN} ; then
+	CANDIDATES=()
+	CANDIDATES+=("project:./.npmrc")
+	CANDIDATES+=("user:${HOME}/.npmrc")
+	CANDIDATES+=("global:${NODE_CACHE}/npmrc")
+
+	#
+	# Iterate over the candidates, and use the first one whose file
+	# exists (i.e. the narrowest scope). This will ensure our configurations
+	# work properly for the build.
+	#
+	# By default, we use the user's configuration
+	LOCATION=(--location "user")
+	for n in "${CANDIDATES[@]}" ; do
+		IFS=":" read type file <<< "${n}"
+		[ -e "${file}" ] || continue
+		LOCATION=(--location "${type}")
+		say "Location not given, using [${type}]" 1>&2
+		break
+	done
+fi
+
+exec "${NPM}" config "${LOCATION[@]}" "${@}"

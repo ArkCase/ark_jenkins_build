@@ -1,0 +1,60 @@
+#!/bin/bash
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "${@}"
+}
+
+fail()
+{
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+usage()
+{
+	say "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [pom.xml-or-directory]" 1>&2
+	exit 1
+}
+
+[ ${#} -le 1 ] || usage
+
+DIR="."
+POM="pom.xml"
+if [ ${#} -eq 1 ] ; then
+	F="${1}"
+	[ -e "${F}" ] || fail "The path [${F}] does not exist"
+	if [ -d "${F}" ] ; then
+		# If it's a directory, then we use the default POM filename
+		DIR="${F}"
+	else
+		# If it's a file, then split it ...
+		DIR="$(/usr/bin/dirname "${F}")"
+		POM="$(/usr/bin/basename "${F}")"
+	fi
+fi
+
+[ -e "${DIR}" ] || fail "The project directory [${DIR}] does not exist"
+[ -d "${DIR}" ] || fail "The path [${DIR}] is not a directory"
+[ -r "${DIR}" ] || fail "The project directory [${POM}] is not readable"
+[ -x "${DIR}" ] || fail "The project directory [${POM}] is not executable"
+
+# Ok ... so the directory is fine, let's use the POM file
+cd "${DIR}" || fail "Failed to CD into [${DIR}]"
+
+[ -e "${POM}" ] || fail "The POM file [${POM}] does not exist"
+[ -f "${POM}" ] || fail "The path [${POM}] is not a regular file"
+[ -r "${POM}" ] || fail "The POM file [${POM}] is not readable"
+
+MVN="$(type -P mvn)" || fail "Failed to find the Maven executable in the path (mvn), cannot continue!"
+
+# Have to use this, or things may not work properly everywhere
+# if an old version of the plugin is used
+HELP="org.apache.maven.plugins:maven-help-plugin:3.4.0"
+
+exec "${MVN}" "${HELP}:evaluate" -Dexpression=project.version -q -DforceStdout -f "$(/usr/bin/basename "${POM}")"

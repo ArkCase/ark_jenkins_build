@@ -1,0 +1,6 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+exec "${BASEDIR}/set-project-version" "${@}"

@@ -1,0 +1,138 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} version [directory] [-h|-?|--help]"
+	exit 1
+}
+
+cleanup() {
+	[ -n "${BUFFER}" ] && :> "${BUFFER}" && /usr/bin/rm -rf "${BUFFER}" &>/dev/null
+}
+
+trap cleanup EXIT
+
+check_help_flag "${@}" && usage
+[ ${#} -gt 2 ] && usage
+[ ${#} -lt 1 ] && usage
+
+# If no directory list is given, assume the first directory will be the current one
+[ ${#} -lt 2 ] && set -- "${1}" "."
+
+VERSION="${1}"
+[ -z "${VERSION}" ] && fail "The version may not be the empty string"
+[[ "${VERSION}" =~ [[:space:]] ]] && fail "The version may not contain spaces"
+
+DIR="${2}"
+check_dir_writable "${DIR}" || fail "Can't write to the directory [${DIR}]"
+
+# Make sure we have JQ installed
+/usr/bin/which jq &>/dev/null || fail "JQ is not in the path - please correct this and try again"
+/usr/bin/which xmlstarlet &>/dev/null || fail "xmlstarlet is not in the path - please correct this and try again"
+
+maven_set_version() {
+	local VERSION="${1}"
+	local DIR="${2}"
+
+	local POM_XML="${DIR}/pom.xml"
+	check_file "${POM_XML}" || return 0
+
+	check_dir_readwrite "${DIR}" || fail "The directory [${DIR}] must be readable and writable"
+	DIR="$(/usr/bin/readlink -f "${DIR}")"
+
+	check_file_readwrite "${POM_XML}" || fail "The file [${POM_XML}] must be readable and writable"
+
+	say "Setting the POM version number to [${VERSION}] in all relevant files within [${DIR}], recursively ..."
+	local V="$(/usr/bin/xmlstarlet sel -N 'p=http://maven.apache.org/POM/4.0.0' -t -v '/p:project/p:version' < "${POM_XML}")"
+	[ -n "${V}" ] || fail "The POM file at [${POM_XML}] is invalid - the version string is empty"
+	local GOAL="set"
+	local ARGS=()
+	if [[ "${V}" =~ \$\{revision\} ]] ; then
+		# We're using the revision variable - just set that
+		GOAL+="-property"
+		ARGS+=(-Dproperty="revision")
+	fi
+	ARGS+=(-DnewVersion="${VERSION}")
+	ARGS+=(-DgenerateBackupPoms=false)
+	mvn "versions:${GOAL}" "${ARGS[@]}" || fail "Failed to set the Maven version info"
+	return 0
+}
+
+nodejs_apply_version() {
+	local VERSION="${1}"
+	local JSON="${2}"
+
+	check_file_readwrite "${JSON}" || fail "The JSON file [${JSON}] must be both readable and writable (${?})"
+	say "Processing [${JSON}]"
+	/usr/bin/jq --indent 4 --arg VERSION "${VERSION}" '.version = $VERSION' < "${JSON}" > "${BUFFER}" || fail "Failed to render the JSON for [${JSON}] using the new version number [${VERSION}]"
+
+	local BAK="${JSON}.bak"
+	/usr/bin/cat "${JSON}" > "${BAK}" || fail "Failed to create a backup file for [${JSON}]"
+	if /usr/bin/cat "${BUFFER}" > "${JSON}" ; then
+		/usr/bin/rm -f "${BAK}" &>/dev/null
+		return 0
+	fi
+
+	/usr/bin/cat "${BAK}" > "${JSON}"
+	/usr/bin/rm -f "${BAK}" &>/dev/null
+	err "Failed to write the new JSON with version [${VERSION}] into [${JSON}]"
+	return 1
+}
+
+nodejs_list_libraries() {
+	local DIR="${1}"
+	local ANGULAR_JSON="${DIR}/angular.json"
+	if ! check_file_readable "${ANGULAR_JSON}" ; then
+		err "The file [${ANGULAR_JSON}] must be readable"
+		return 1
+	fi
+	ANGULAR_JSON="$(/usr/bin/readlink -f "${ANGULAR_JSON}")"
+	/usr/bin/jq -r '.projects[] | select (.projectType=="library") | .root' "${ANGULAR_JSON}" | /usr/bin/sort -u
+	return ${PIPESTATUS[0]}
+}
+
+nodejs_set_version() {
+	local VERSION="${1}"
+	local DIR="${2}"
+	local PACKAGE_JSON="package.json"
+
+	local ROOT_PACKAGE_JSON="${DIR}/${PACKAGE_JSON}"
+	check_file "${ROOT_PACKAGE_JSON}" || return 0
+
+	say "Setting NodeJS version data"
+	check_dir_readwrite "${DIR}" || fail "The directory [${DIR}] must be readable and writable"
+	DIR="$(/usr/bin/readlink -f "${DIR}")"
+
+	ROOT_PACKAGE_JSON="${DIR}/${PACKAGE_JSON}"
+	check_file_readwrite "${ROOT_PACKAGE_JSON}" || fail "The file [${ROOT_PACKAGE_JSON}] must be readable and writable"
+
+	say "Setting the NodeJS version number to [${VERSION}] in all relevant [${PACKAGE_JSON}] files within [${DIR}], recursively ..."
+	say "Setting the NodeJS version on the file [${ROOT_PACKAGE_JSON}]..."
+	nodejs_apply_version "${VERSION}" "${ROOT_PACKAGE_JSON}" || fail "Failed to render the JSON for [${ROOT_PACKAGE_JSON}] using the new version number [${VERSION}]"
+
+	# Now the sub-libraries
+	say "Setting the NodeJS version on all referenced modules..."
+	lerna version "${VERSION}" --yes --no-push --no-git-tag-version --no-changelog || fail "Failed to set the version on the submodules at directory [${DIR}]"
+
+	# while read LIBRARY_DIR ; do
+	# 	JSON="${LIBRARY_DIR}/${PACKAGE_JSON}"
+	# 	nodejs_apply_version "${VERSION}" "${JSON}" || fail "Failed to apply the version change to [${JSON}]"
+	# done < <(nodejs_list_libraries "${DIR}")
+
+	return 0
+}
+
+BUFFER="$(/usr/bin/mktemp --suffix=.json package.XXXXXXXX)"
+cd "${DIR}" || fail "Failed to CD into [${DIR}]"
+maven_set_version "${VERSION}" "${DIR}" || fail "Failed to set the POM version for [${DIR}]"
+nodejs_set_version "${VERSION}" "${DIR}" || fail "Failed to set the NodeJS version for [${DIR}]"
+exit 0

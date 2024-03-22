@@ -1,0 +1,50 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+
+set -euo pipefail
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+fail()
+{
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+ADD_DESC="false"
+if [ ${#} -gt 0 ] ; then
+	case "${1,,}" in
+		-d ) ADD_DESC="true" ;;
+	esac
+fi
+
+#
+# Make sure we're given a solid token
+#
+[ -v RANCHER_TOKEN ] || RANCHER_TOKEN=""
+[ -n "${RANCHER_TOKEN}" ] || fail "Must provide a non-empty RANCHER_TOKEN value"
+[[ "${RANCHER_TOKEN}" =~ ^[a-zA-Z0-9_-]+:.+$ ]] || fail "The RANCHER_TOKEN format is invalid"
+
+CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
+JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
+SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
+
+#
+# Allow for a configurable API endpoint, just in case...
+#
+[ -v RANCHER_API_ENDPOINT ] || RANCHER_API_ENDPOINT=""
+[ -n "${RANCHER_API_ENDPOINT}" ] || RANCHER_API_ENDPOINT="https://rancher.armedia.com/v3/clusters"
+
+QUERY=".data[] | .name"
+"${ADD_DESC}" && QUERY+=' + " " + .description'
+
+"${CURL}" -fsSL -u "${RANCHER_TOKEN}" "${RANCHER_API_ENDPOINT}" | "${JQ}" -r "${QUERY}" | "${SORT}"

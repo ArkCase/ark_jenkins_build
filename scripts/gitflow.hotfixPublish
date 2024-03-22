@@ -1,0 +1,67 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} (start|end) hotfixVersion"
+	exit 1
+}
+
+[ ${#} -ne 2 ] && usage
+
+OP="${1,,}"
+case "${OP}" in
+	start | end ) shift ;;
+	* ) fail "Uknown operation [${1}] - can't continue" ;;
+esac
+
+HOTFIX_VERSION="$(echo -n "${1}" | /usr/bin/tr -d '\n\r')"
+[ -z "${HOTFIX_VERSION}" ] || fail "The hotfix version may not be the empty string"
+
+checkout() {
+	# Check out the hotfix branch
+	local HOTFIX_BRANCH="hotfix/${1}"
+	if ! /usr/bin/git checkout "${HOTFIX_BRANCH}" &>/dev/null ; then
+		/usr/bin/git checkout -b "${HOTFIX_BRANCH}" || return 1
+		/usr/bin/git pull || return 1
+	fi
+	return 0
+}
+
+start() {
+	local HOTFIX_VERSION="${1}"
+
+	checkout "${HOTFIX_VERSION}" || fail "Failed to checkout the hotfix branch for hotfix ${HOTFIX_VERSION}"
+
+	# set the artifact's version to "${HOTFIX_VERSION}"
+	"${BASEDIR}/set-project-version" "${HOTFIX_VERSION}"
+
+	# Do we have changes to commit and push?
+	/usr/bin/git diff-index --quiet HEAD -- || git commit -a -m "Version bump to ${HOTFIX_VERSION}"
+	/usr/bin/git push --set-upstream origin "$(git branch --show-current)"
+}
+
+end() {
+	local HOTFIX_VERSION="${1}"
+
+	checkout "${HOTFIX_VERSION}" || fail "Failed to checkout the hotfix branch for hotfix ${HOTFIX_VERSION}"
+
+	# Run the git flow hotfix
+	/usr/bin/git flow hotfix finish --showcommands --push --pushtag --message "Hotfix ${HOTFIX_VERSION} complete"
+}
+
+set -euo pipefail
+
+# Ok ... we're ready to go, so do the git flow init
+"${BASEDIR}/gitflow.init"
+
+# Execute the operation
+"${OP}" "${@}"

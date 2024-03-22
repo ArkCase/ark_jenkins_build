@@ -1,0 +1,91 @@
+#!/bin/bash
+SCRIPT="$(readlink -f "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}")"
+set -euo pipefail
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+doing()
+{
+	say "👉 ${@}"
+}
+
+ok()
+{
+	say "✅ ${@}"
+}
+
+warn()
+{
+	say "⚠️ ${@}"
+}
+
+err() {
+	say "❌ ${@}" 1>&2
+}
+
+fail() {
+	err "${@}"
+	exit ${EXIT_CODE:-1}
+}
+
+list_artifacts()
+{
+	local SRC="${1}"
+	cat "${SRC}" | sed -e '/^\s*#/d'
+}
+
+base_install()
+{
+	local VERSION="${1}"
+	local ARTIFACT="${2}"
+	doing "Applying the basic installation steps for [${VERSION}] from [${ARTIFACT}]..."
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [tool-dir-1 tool-dir-2 tool-dir-3 ... tool-dir-N]" 1>&2
+	exit 1
+}
+
+[ ${#} -gt 0 ] || usage
+
+BASE_INSTALLER="base_install"
+doing "Installing ${#} tools..."
+for TOOL in "${@}" ; do
+	[ -e "${TOOL}" ] && [ -d "${TOOL}" ] && [ -r "${TOOL}" ] && [ -x "${TOOL}" ] || {
+		warn "The path [${TOOL}] does not exist or is not an accessible directory, skipping!"
+		continue
+	}
+
+	ARTIFACTS="${TOOL}/.artifacts"
+	[ -e "${ARTIFACTS}" ] && [ -f "${ARTIFACTS}" ] && [ -r "${ARTIFACTS}" ] || {
+		warn "The path [${TOOL}] does not have an artifacts manifest, skipping!"
+		continue
+	}
+
+	TOOL="$(readlink -f "${TOOL}")"
+	ARTIFACTS="$(readlink -f "${ARTIFACTS}")"
+	
+	INSTALLER="${TOOL}/.install"
+	[ -e "${INSTALLER}" ] && [ -f "${INSTALLER}" ] && [ -x "${INSTALLER}" ] || INSTALLER="${BASE_INSTALLER}"
+
+	doing "Installing the tool from [${TOOL}]..."
+	while read VERSION ARTIFACT ; do
+		doing "Processing version ${VERSION} from [${ARTIFACT}]..."
+		if ( "${INSTALLER}" "${VERSION}" "${ARTIFACT}" ) ; then
+			err "Installation failed!"
+		else
+			ok "Installation complete!"
+		fi
+	done < <(list_artifacts "${ARTIFACTS}")
+
+	select_latest "${TOOL}"
+done

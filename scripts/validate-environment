@@ -1,0 +1,109 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+
+set -euo pipefail
+
+[ -v DEPLOY_TIMEOUT ] || DEPLOY_TIMEOUT=""
+[ -n "${DEPLOY_TIMEOUT}" ] || DEPLOY_TIMEOUT="20m"
+
+[ -v DISABLE_DEPLOY ] || DISABLE_DEPLOY=""
+case "${DISABLE_DEPLOY,,}" in
+	true | t | yes | y ) DISABLE_DEPLOY="true" ;;
+	* ) DISABLE_DEPLOY="false" ;;
+esac
+export DISABLE_DEPLOY
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+warn()
+{
+	say "⚠️ ${@}"
+}
+
+fail()
+{
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+is_deployed()
+{
+	local NAMESPACE="${1}"
+	local RELEASE="${2}"
+	"${HELM}" get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
+	return ${?}
+}
+
+is_deployment_disabled()
+{
+	"${DISABLE_DEPLOY}" && return 0
+	return 1
+}
+
+execute()
+{
+	#
+	# Show the command about to be executed
+	#
+	say "${@@Q}"
+	if is_deployment_disabled ; then
+		warn "Deployment disabled: skipping the command execution"
+		return 0
+	fi
+
+	#
+	# Proceed with the execution
+	#
+	( exec "${@}" )
+	return ${?}
+}
+
+HELM="$(type -P helm)" || fail "Failed to find helm in the path"
+KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
+
+if [ ! -v KUBECONFIG ] ; then
+	[ -v K8S_CONFIG ] && export KUBECONFIG="${!K8S_CONFIG}"
+fi
+
+[ -v NAMESPACE ] || NAMESPACE=""
+[ -n "${NAMESPACE}" ] || NAMESPACE="default"
+
+[ -v RELEASE ] || RELEASE=""
+[ -n "${RELEASE}" ] || RELEASE="arkcase"
+
+NS=(--namespace "${NAMESPACE}")
+
+# Delete the old installation, since it's the safest bet to ensure
+# that the correct resources, containers, and deployments are used
+is_deployed "${NAMESPACE}" "${RELEASE}" || fail "The release [${RELEASE}] is not deployed into namespace [${NAMESPACE}] ... can't validate it"
+
+# Delete any prior test pods
+say "👉 Deleting any existing test pods"
+execute \
+	"${KUBECTL}" delete pod \
+		"${NS[@]}" \
+		--wait \
+		--now \
+		--cascade=foreground \
+		--selector="app.kubernetes.io/instance=${RELEASE},arkcase.com/task=test" || \
+	say "\t⚠️ No prior test pods to delete"
+
+# Execute the helm test containers, to make sure everything
+# that needs to be running, is actually running correctly
+say "👉 Launching the Helm validation"
+# Apparently, --logs has an issue where cleanup will happen before the logs
+# are retrieved, so we're going to skip that for now
+execute \
+	"${HELM}" test \
+		"${RELEASE}" "${NS[@]}" || \
+	fail "The Helm deployment verification failed, please review the logs"
+say "\t✅ Helm deployment verified!"

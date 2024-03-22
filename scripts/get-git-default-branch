@@ -1,0 +1,21 @@
+
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} git-url"
+	exit 1
+}
+
+[ ${#} -ne 1 ] && usage
+
+/usr/bin/git ls-remote --exit-code --symref "${1}" HEAD | /usr/bin/awk -F'[/\t]' 'NR == 1 { print $3 }'

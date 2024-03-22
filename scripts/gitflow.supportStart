@@ -1,0 +1,31 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} releaseVersion"
+	exit 1
+}
+
+[ ${#} -ne 1 ] && usage
+
+RELEASE_VERSION="$(echo -n "${1}" | /usr/bin/tr -d '\n\r')"
+[ -z "${RELEASE_VERSION}" ] || fail "The release version may not be the empty string"
+
+set -euo pipefail
+
+# Ok ... we're ready to go, so do the git flow init
+"${BASEDIR}/gitflow.init"
+
+# Start the git flow release
+# This starts the release, and checks out the release branch
+/usr/bin/git flow support start --showcommands "${RELEASE_VERSION}" "${RELEASE_VERSION}"
+/usr/bin/git push --set-upstream origin "$(git branch --show-current)"

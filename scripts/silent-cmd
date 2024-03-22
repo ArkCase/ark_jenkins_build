@@ -1,0 +1,13 @@
+#!/bin/bash
+OUT="$("${@}" 2>&1)"
+RC=${?}
+
+[ ${RC} -eq 0 ] && exit 0
+
+echo "Command failed (rc=${RC}): ${@@Q}"
+if [ -n "${OUT}" ] ; then
+	echo "----- BEGIN OUTPUT -----"
+	echo "${OUT}"
+	echo "------ END OUTPUT ------"
+fi
+exit ${RC}

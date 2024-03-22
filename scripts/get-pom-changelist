@@ -1,0 +1,40 @@
+#!/bin/bash
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "${@}"
+}
+
+fail()
+{
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+usage()
+{
+	say "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [pom.xml]" 1>&2
+	exit 1
+}
+
+[ ${#} -le 1 ] || usage
+
+POM="pom.xml"
+if [ ${#} -eq 1 ] ; then
+	POM="${1}"
+	[ -n "${1}" ] || fail "The POM file path may not be the empty string"
+fi
+
+MVN="$(type -P mvn)" || fail "Failed to find the Maven executable in the path, cannot continue!"
+
+[ -e "${POM}" ] || fail "The POM file [${POM}] does not exist"
+[ -f "${POM}" ] || fail "The path [${POM}] is not a regular file"
+[ -r "${POM}" ] || fail "The POM file [${POM}] is not readable"
+
+CHANGELIST="$("${MVN}" -f "${POM}" help:evaluate -Dexpression=changelist -q -DforceStdout 2>&1)" || fail "Failed to compute the changelist using Maven's help:evaluate command: ${CHANGELIST}"
+exec /usr/bin/tr -d '\n' <<< "${CHANGELIST}"

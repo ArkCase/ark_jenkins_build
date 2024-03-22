@@ -1,0 +1,63 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} [directory]"
+	exit 1
+}
+
+# If no directory list is given, assume the first directory will be the current one
+check_help_flag "${@}" && usage
+[ ${#} -gt 1 ] && usage
+[ ${#} -lt 1 ] && set -- "."
+
+# Make sure we have JQ installed
+/usr/bin/which jq &>/dev/null || fail "JQ is not in the path - please correct this and try again"
+
+nodejs_list_libraries() {
+	local DIR="${1}"
+	local ANGULAR_JSON="${DIR}/angular.json"
+	if check_file_readable "${ANGULAR_JSON}" ; then
+		ANGULAR_JSON="$(/usr/bin/readlink -f "${ANGULAR_JSON}")"
+		/usr/bin/jq -r '.projects[] | select (.projectType=="library") | .root' "${ANGULAR_JSON}" | /usr/bin/sort -u
+		return ${PIPESTATUS[0]}
+	fi
+
+	/usr/bin/find . -type f -name "${PACKAGE_JSON}" -printf "%h\n" | \
+		/usr/bin/egrep -v "^[.]$" | \
+		/usr/bin/egrep -v '^[.]/dist/' | \
+		/usr/bin/sed -e 's;^[.]/;;g' | \
+		/usr/bin/sort
+	return ${PIPESTATUS[0]}
+}
+
+DIR="${1}"
+
+PACKAGE_JSON="package.json"
+ANGULAR_JSON="angular.json"
+
+check_dir_readable "${DIR}" || fail "The directory [${DIR}] must be readable"
+DIR="$(readlink -f "${DIR}")"
+
+cd "${DIR}" || fail "Failed to CD into [${DIR}]"
+
+check_file_readable "${PACKAGE_JSON}" || fail "The file [${PACKAGE_JSON}] must be readable"
+
+VERSION="$(/usr/bin/jq -r ".version" < "${PACKAGE_JSON}")" || fail "Failed to read the JSON in [${PACKAGE_JSON}] in [${DIR}] to get the version number ($?)"
+echo -e "${PACKAGE_JSON} : ${VERSION}"
+while read LIB ; do
+	JSON="${LIB}/${PACKAGE_JSON}"
+	check_file_readable "${JSON}" || fail "The JSON file [${JSON}] must be readable (${?})"
+	VERSION="$(/usr/bin/jq -r ".version" < "${JSON}")" || fail "Failed to read the JSON in [${JSON}] to get the version number ($?)"
+	echo -e "${JSON} : ${VERSION}"
+# done < <(/usr/bin/find "${DIR}" -type f -name "${PACKAGE_JSON}" | /usr/bin/sort)
+done < <(nodejs_list_libraries "${DIR}")

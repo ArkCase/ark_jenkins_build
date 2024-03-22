@@ -1,0 +1,47 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} releaseVersion rcSuffix"
+	exit 1
+}
+
+[ ${#} -ne 2 ] && usage
+
+RELEASE_VERSION="$(echo -n "${1}" | /usr/bin/tr -d '\n\r')"
+[ -n "${RELEASE_VERSION}" ] || fail "The release version may not be the empty string"
+RC_SUFFIX="$(echo -n "${2}" | /usr/bin/tr -d '\n\r')"
+[ -n "${RC_SUFFIX}" ] || fail "The release candidate suffix may not be the empty string"
+[[ "${RC_SUFFIX}" =~ \. ]] && fail "The release candidate suffix may not contain dots"
+
+set -euo pipefail
+
+RC_VERSION="${RELEASE_VERSION}-${RC_SUFFIX}"
+
+# This quick test is silent on success, but cries loudly if we're not in a git repo
+/usr/bin/git rev-parse
+
+/usr/bin/git ls-remote --exit-code "${GIT_REPO}" "refs/tags/${RC_VERSION}" && fail "Candidate ${RC_VERSION} was already produced, try another suffix"
+
+RELEASE_BRANCH="release/${RELEASE_VERSION}"
+if ! /usr/bin/git checkout "${RELEASE_BRANCH}" &>/dev/null ; then
+	/usr/bin/git checkout -b "${RELEASE_BRANCH}"
+	/usr/bin/git pull
+fi
+
+# set the artifact's version to "${RC_VERSION}"
+"${BASEDIR}/set-project-version" "${RC_VERSION}"
+
+# push a tag marking this release candidate
+/usr/bin/git push origin "HEAD:refs/tags/${RC_VERSION}"
+
+# Now, after exiting, go ahead and run the build and whatnot

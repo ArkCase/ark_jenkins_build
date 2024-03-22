@@ -1,0 +1,57 @@
+#!/bin/bash
+set -euo pipefail
+
+timestamp()
+{
+	date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+warn()
+{
+	say "⚠️ WARNING: ${@}"
+}
+
+err()
+{
+	say "❌ ERROR: ${@}"
+}
+
+fail()
+{
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} workflow runid"
+	exit 1
+}
+
+[ ${#} -eq 2 ] || usage
+
+WORKFLOW="${1}"
+[ -n "${WORKFLOW}" ] || fail "The workflow may not be an empty string"
+RUN_ID="${2}"
+[ -n "${RUN_ID}" ] || fail "The runId may not be an empty string"
+
+GH_USER_FLAGS=()
+[ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
+
+# Wait for the run to complete
+say "\t👀 Watching run # ${RUN_ID} for workflow ${WORKFLOW}..."
+gh run watch "${RUN_ID}" || fail "Failed to watch run # ${RUN_ID} to completion"
+
+RC=0
+gh run view "${RUN_ID}" --exit-status &>/dev/null || RC="${?}"
+
+# Always show the full log
+gh run view "${RUN_ID}" --log
+
+[ ${RC} -eq 0 ] || fail "Run ${RUN_ID} failed! (rc = ${RC})"
+say "✅ Run ${RUN_ID} succeeded!"

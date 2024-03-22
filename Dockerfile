@@ -5,7 +5,7 @@ FROM ubuntu:latest
 #
 ARG ARCH="amd64"
 ARG OS="linux"
-ARG VER="1.3.5"
+ARG VER="2.0.0"
 ARG PKG="jenkins-build"
 ARG APP_USER="jenkins"
 ARG APP_UID="1000"
@@ -24,6 +24,14 @@ ARG GITHUB_REPO="https://cli.github.com/packages"
 ARG GITLAB_REPO="https://raw.githubusercontent.com/upciti/wakemeops/main/assets/install_repository"
 ARG YARN_KEYRING="https://dl.yarnpkg.com/debian/pubkey.gpg"
 ARG YARN_REPO="https://dl.yarnpkg.com/debian/"
+ARG AWS_SRC="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+ARG AWX_SRC="https://releases.ansible.com/ansible-tower/cli/ansible-tower-cli-latest.tar.gz"
+ARG MVN_VER="3.9.6"
+ARG MVN_SRC="https://dlcdn.apache.org/maven/maven-3/${MVN_VER}/binaries/apache-maven-${MVN_VER}-bin.tar.gz"
+ARG GIT_LFS_VER="3.5.1"
+ARG GIT_LFS_SRC="https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VER}/git-lfs-linux-amd64-v${GIT_LFS_VER}.tar.gz"
+ARG VCODE_VER="23.8.12.0"
+ARG VCODE_SRC="com.veracode.vosp.api.wrappers:vosp-api-wrappers-java:${VCODE_VER}:zip:dist"
 
 #
 # Some important labels
@@ -49,7 +57,8 @@ ENV APT_SOURCES_DIR="/etc/apt/sources.list.d"
 #
 RUN apt-get update && \
     apt-get install -y \
-        curl gpg \
+        curl \
+        gpg \
       && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
@@ -81,7 +90,6 @@ RUN apt-get update && \
         ca-certificates \
         ca-certificates-java \
         containerd.io \
-        curl \
         dirmngr \
         default-libmysqlclient-dev \
         dos2unix \
@@ -155,7 +163,65 @@ RUN apt-get update && \
       && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    curl -L --fail "${HELM_SRC}" | tar -C /usr/local/bin --strip-components=1 -xzvf - linux-amd64/helm
+    curl -fsSL "${HELM_SRC}" | tar -C /usr/local/bin --strip-components=1 -xzvf - linux-amd64/helm
+
+#
+# Install all the base tools framework
+#
+ENV PATH="/tools/bin:${PATH}"
+COPY --chown=root:root scripts/ /usr/local/bin
+
+#
+# Add AWS
+#
+RUN mkdir -p "/aws" && \
+    curl -fsSL "${AWS_SRC}" -o "/aws/awscliv2.zip" && \
+    cd "/aws" && \
+    unzip "awscliv2.zip" && \
+    ./aws/install && \
+    cd / && \
+    rm -rf "/aws"
+
+#
+# Add AWX (need install --user?)
+#
+RUN pip3 install "${AWX_SRC}"
+
+#
+# Add Git-LFS
+#
+RUN mkdir -p "/tmp/lfs" && \
+    cd "/tmp/lfs" && \
+    curl -fsSL "${GIT_LFS_SRC}" | tar --strip-components=1 -xzvf - && \
+    bash install.sh && \
+    cd "/tmp" && \
+    rm -rf "lfs"
+
+#
+# Add Maven
+#
+ENV MVN_DIR="/tools/mvn/${MVN_VER}"
+RUN mkdir -p "${MVN_DIR}" && \
+    curl -fsSL "${MVN_SRC}" | tar -C "${MVN_DIR}" --strip-components=1 -xzvf - && \
+    cd "${MVN_DIR}" && \
+	cd .. && \
+	ln -sv "${MVN_VER}" "latest" && \
+	ln -sv "${MVN_VER}" "${MVN_VER%.*}" && \
+	ln -sv "${MVN_VER%.*}" "${MVN_VER%%.*}"
+
+#
+# Install the Veracode API Wrapper
+#
+ENV VCODE_HOME="/opt/vcode-${VCODE_VER}"
+RUN mvn-get "${VCODE_SRC}" "/tmp/veracode.zip" && \
+    unzip -o -d "${VCODE_HOME}" "/tmp/veracode.zip" && \
+    rm -rf "/tmp/veracode.zip"
+
+#
+# Execute the multiflavor tool installations
+#
+COPY --chown=root:root scripts/install-tool /usr/local/bin
+RUN install-tool /tools/*
 
 #
 # Create the user and their home
@@ -182,12 +248,16 @@ RUN chmod 0640 /etc/sudoers.d/00-build
 USER "${APP_USER}"
 
 #
+# Configure Git for the build user
+#
+RUN /usr/bin/git config --global credential.helper cache && \
+    /usr/bin/git config --global --add safe.directory '*'
+
+#
 # Final parameters
 #
-VOLUME      [ "/conf.d" ]
 VOLUME      [ "/init.d" ]
 VOLUME      [ "/cache" ]
-VOLUME      [ "/tools" ]
 VOLUME      [ "/home/${APP_USER}" ]
 
 WORKDIR     "/home/${APP_USER}"

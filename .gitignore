@@ -1,5 +1,5 @@
-**/*.swp
-tools
+**/.*.sw?
+**/.sw?
 cache
 init.d
 conf.d

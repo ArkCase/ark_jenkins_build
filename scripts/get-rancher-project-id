@@ -1,0 +1,61 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+
+set -euo pipefail
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+fail()
+{
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} cluster-name project-name"
+	exit 1
+}
+
+[ ${#} -eq 2 ] || usage
+
+#
+# Make sure we're given a solid token
+#
+[ -v RANCHER_TOKEN ] || RANCHER_TOKEN=""
+[ -n "${RANCHER_TOKEN}" ] || fail "Must provide a non-empty RANCHER_TOKEN value"
+[[ "${RANCHER_TOKEN}" =~ ^[a-zA-Z0-9_-]+:.+$ ]] || fail "The RANCHER_TOKEN format is invalid"
+
+#
+# Allow for a configurable API endpoint, just in case...
+#
+[ -v RANCHER_API_URL ] || RANCHER_API_URL=""
+[ -n "${RANCHER_API_URL}" ] || RANCHER_API_URL="https://rancher.armedia.com"
+
+# Remove trailing slashes from the URL
+[[ "${RANCHER_API_URL}" =~ ^(.*)/*$ ]] || fail "Invalid Rancher API URL [${RANCHER_API_URL}]"
+RANCHER_API_ENDPOINT="${BASH_REMATCH[0]}/v1/management.cattle.io.projects"
+
+CLUSTER_NAME="${1}"
+[ -n "${CLUSTER_NAME}" ] || fail "Must provide a non-empty cluster name"
+
+PROJECT_NAME="${2}"
+[ -n "${PROJECT_NAME}" ] || fail "Must provide a non-empty project name"
+
+CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
+JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
+
+CLUSTER_ID="$("${BASEDIR}/get-rancher-cluster-id" "${CLUSTER_NAME}")" || exit 1
+RANCHER_API_ENDPOINT+="/${CLUSTER_ID}"
+PROJECT_ID="$("${CURL}" -fsSL -u "${RANCHER_TOKEN}" "${RANCHER_API_ENDPOINT}" | "${JQ}" -r ".data[] | select(.spec.displayName == \"${PROJECT_NAME}\") | .id")" || fail "Could not find the project named [${PROJECT_NAME}] in the ${CLUSTER_NAME} cluster"
+echo "${PROJECT_ID}"
+exit 0

@@ -1,0 +1,137 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+
+set -euo pipefail
+
+[ -v UNDEPLOY_TIMEOUT ] || UNDEPLOY_TIMEOUT=""
+[ -n "${UNDEPLOY_TIMEOUT}" ] || UNDEPLOY_TIMEOUT="20m"
+
+[ -v DISABLE_UNDEPLOY ] || DISABLE_UNDEPLOY=""
+case "${DISABLE_UNDEPLOY,,}" in
+	true | t | yes | y ) DISABLE_UNDEPLOY="true" ;;
+	* ) DISABLE_UNDEPLOY="false" ;;
+esac
+export DISABLE_UNDEPLOY
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+warn()
+{
+	say "⚠️ ${@}"
+}
+
+fail()
+{
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+is_deployed()
+{
+	local NAMESPACE="${1}"
+	local RELEASE="${2}"
+	"${HELM}" get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
+	return ${?}
+}
+
+is_valid_name()
+{
+	local STR="${1}"
+	[[ "${STR}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || return 1
+	return 0
+}
+
+is_deployment_disabled()
+{
+	"${DISABLE_UNDEPLOY}" && return 0
+	return 1
+}
+
+execute()
+{
+	#
+	# Show the command about to be executed
+	#
+	say "${@@Q}"
+	if is_deployment_disabled ; then
+		warn "Deployment disabled: skipping the command execution"
+		return 0
+	fi
+
+	#
+	# Proceed with the execution
+	#
+	( exec "${@}" )
+	return ${?}
+}
+
+is_namespace_exists()
+{
+	local NAMESPACE="${1}"
+	if is_deployment_disabled ; then
+		warn "Deployment disabled: assuming the namespace exists"
+		return 0
+	fi
+
+	"${KUBECTL}" get namespace "${NAMESPACE}" &>/dev/null && return 0
+	return 1
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_SOURCE:-${0}} [namespace] release" 1>&2
+	exit 1
+}
+
+[ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
+
+HELM="$(type -P helm)" || fail "Failed to find helm in the path"
+KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
+
+if [ ! -v KUBECONFIG ] ; then
+	[ -v K8S_CONFIG ] && export KUBECONFIG="${!K8S_CONFIG}"
+fi
+
+if [ ${#} -eq 1 ] ; then
+	NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"
+	RELEASE="${1}"
+else
+	NAMESPACE="${1}"
+	RELEASE="${2}"
+fi
+
+is_valid_name "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
+is_valid_name "${RELEASE}" || fail "Invalid release name [${RELEASE}]"
+
+# If the target namespace doesn't exist, by extension the environment doesn't exist
+if ! is_namespace_exists "${NAMESPACE}" ; then
+	say "The namespace ${NAMESPACE} does not exist, so nothing to remove"
+	exit 0
+fi
+
+if ! is_deployed "${NAMESPACE}" "${RELEASE}" ; then
+	say "The Helm deployment ${RELEASE} was not found in the ${NAMESPACE} namespace"
+	exit 0
+fi
+
+# Delete the old installation, since it's the safest bet to ensure
+# that the correct resources, containers, and deployments are used
+execute \
+	"${HELM}" uninstall "${RELEASE}" \
+		--namespace "${NAMESPACE}" \
+		--cascade foreground \
+		--wait \
+		--timeout "${UNDEPLOY_TIMEOUT}" || \
+	fail "The Helm undeployment has failed, please review the logs"
+
+# All is well... exit!
+exit 0

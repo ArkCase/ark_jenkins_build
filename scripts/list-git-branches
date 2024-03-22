@@ -1,0 +1,36 @@
+
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} git-url [regex]"
+	exit 1
+}
+
+[ ${#} -lt 1 ] && usage
+[ ${#} -gt 2 ] && usage
+
+filter() {
+	local REGEX="${1}"
+	if [ -z "${REGEX}" ] ; then
+		cat
+	else
+		/usr/bin/egrep "${REGEX}"
+	fi
+}
+
+/usr/bin/git ls-remote --exit-code --symref "${1}" | \
+	/usr/bin/tail -n +2 | \
+	/usr/bin/grep '[[:space:]]refs/' | \
+	/usr/bin/grep -v '\^{}$' | \
+	/usr/bin/awk '{ print $2 }' | \
+	filter "${2}"

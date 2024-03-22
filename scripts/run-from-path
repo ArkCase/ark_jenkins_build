@@ -1,0 +1,11 @@
+#!/bin/bash
+[ -v BASH_ARGV0 ] || BASH_ARGV0="${0}"
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} command..."
+	exit 1
+}
+
+[ ${#} -lt 1 ] && usage
+
+exec "${@}"

@@ -1,0 +1,145 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+set -euo pipefail
+
+timestamp() {
+	/usr/bin/date -Ins -u
+}
+
+say() {
+	echo -e "$(timestamp): ${@}"
+}
+
+fail() {
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} appId [targetPath]" 1>&2
+	exit 1
+}
+
+cleanup() {
+	if [ -v WORKDIR ] ; then
+		[ -d "${WORKDIR}" ] && rm -rf "${WORKDIR}" || true
+	fi
+}
+
+trap cleanup EXIT
+
+[ ${#} -ge 1 ] || usage
+[ ${#} -le 2 ] || usage
+
+# Get from parameters
+APP_NAME="${1}"
+[ -n "${APP_NAME}" ] || fail "The application name may not be the empty string"
+
+TARGET_PATH=""
+if [ ${#} -eq 2 ] ; then
+	TARGET_PATH="${2}"
+else
+	TARGET_PATH="$(/usr/bin/mktemp -d)"
+fi
+[ -n "${TARGET_PATH}" ] || fail "The target path may not be an empty string"
+[ -d "${TARGET_PATH}" ] || mkdir -p "${TARGET_PATH}" || fail "Failed to ensure that the target path [${TARGET_PATH}] existed"
+
+VERACODE="$(type -P veracode 2>/dev/null)" || fail "The veracode executable could not be found in the PATH"
+XMLSTARLET="$(type -P xmlstarlet 2>/dev/null)" || fail "The xmlstarlet executable could not be found in the PATH"
+STAT="$(type -P stat 2>/dev/null)" || fail "The stat executable could not be found in the PATH"
+SHA256SUM="$(type -P sha256sum 2>/dev/null)" || fail "The sha256sum executable could not be found in the PATH"
+
+[ -v VERACODE_API_KEY_ID ] || fail "The VERACODE_API_KEY_ID variable is not set, cannot continue"
+[ -n "${VERACODE_API_KEY_ID}" ] || fail "The VERACODE_API_KEY_ID variable has an empty value, cannot continue"
+[ -v VERACODE_API_KEY_SECRET ] || fail "The VERACODE_API_KEY_SECRET variable is not set, cannot continue"
+[ -n "${VERACODE_API_KEY_SECRET}" ] || fail "The VERACODE_API_KEY_SECRET variable has an empty value, cannot continue"
+
+[ -v VERACODE_BUILD_ID ] || VERACODE_BUILD_ID=""
+
+say "⚠️ Files will be stored in [${TARGET_PATH}]"
+
+BUILD_ID=()
+[ -z "${VERACODE_BUILD_ID}" ] || BUILD_ID=(-buildid "${VERACODE_BUILD_ID}")
+
+[ -v VERACODE_PROBE_SECONDS ] || VERACODE_PROBE_SECONDS=""
+[[ "${VERACODE_PROBE_SECONDS}" =~ ^[1-9][0-9]+$ ]] || VERACODE_PROBE_SECONDS="120"
+
+[ -v VERACODE_TIMEOUT ] || VERACODE_TIMEOUT=""
+[[ "${VERACODE_TIMEOUT}" =~ ^[1-9][0-9]+$ ]] || VERACODE_TIMEOUT="120"
+
+# Compute the application ID based on the name
+APP_ID="$("${BASEDIR}/veracode-get-app-id" "${APP_NAME}")" || fail "Failed to get the application ID for [${APP_NAME}]"
+
+PROBE_START="$(/usr/bin/date +%s)"
+while true ; do
+
+	# First things first!! Check the timeout!
+	PROBE_NOW="$(/usr/bin/date +%s)"
+	[ $(( PROBE_NOW - PROBE_START )) -lt $(( VERACODE_TIMEOUT * 60 )) ] || fail "Timed out waiting for the scan to complete"
+
+	# No timeout? No problem!!
+	if [ -z "${VERACODE_BUILD_ID}" ] ; then
+		say "👉 Retrieving the build information for ${APP_NAME} (${APP_ID})..."
+	else
+		say "👉 Retrieving the build information for ${APP_NAME} (${APP_ID}), BUILD_ID = [${VERACODE_BUILD_ID}]..."
+	fi
+
+	BUILDINFO="${TARGET_PATH}/${APP_NAME}.build-info.xml"
+	"${VERACODE}" -action GetBuildInfo -appid "${APP_ID}" "${BUILD_ID[@]}" -format xml > "${BUILDINFO}" || fail "Failed to fetch the build information!"
+	say "\t✅ Build information retrieved!"
+
+	if [ -z "${VERACODE_BUILD_ID}" ] ; then
+		VERACODE_BUILD_ID="$("${XMLSTARLET}" sel -N "bi=https://analysiscenter.veracode.com/schema/4.0/buildinfo" -t -v "/bi:buildinfo/bi:build/@build_id" < "${BUILDINFO}")"
+		say "\t⚠️ the BUILD_ID is [${VERACODE_BUILD_ID}]"
+		BUILD_ID=(-buildid "${VERACODE_BUILD_ID}")
+	fi
+
+	STATUS="$("${XMLSTARLET}" sel -N "bi=https://analysiscenter.veracode.com/schema/4.0/buildinfo" -t -v "/bi:buildinfo/bi:build/bi:analysis_unit/@status" < "${BUILDINFO}")"
+	say "\t⚠️ the build status is [${STATUS}]"
+	case "${STATUS^^}" in
+
+		# These are "failed" statuses
+		"INCOMPLETE" | "PRESCAN FAILED" | "NO MODULES DEFINED" ) fail "Cannot wait for results any longer" ;;
+
+		# These are "waitable" statuses
+		"VENDOR CONFIRMATION" | "VENDOR REVIEWING" | "PRE-SCAN SUBMITTED" | "PRE-SCAN SUCCESS" | "SCAN IN PROCESS" )
+			say "\t⚠️ The scan is still running, sleeping for ${VERACODE_PROBE_SECONDS} seconds before probing again"
+			/usr/bin/sleep "${VERACODE_PROBE_SECONDS}" || fail "Sleep interrupted, cannot continue"
+			continue
+			;;
+
+		# These are "good" statuses
+		"RESULTS READY" ) break ;;
+
+		# For anything else ... there's mastercard!
+		* ) break ;;
+	esac
+done
+say "✅ The build appears to have finished processing!"
+
+# This can be re-used when rendering/storing files later on
+TARGET_BASE="${TARGET_PATH}/${APP_NAME}.scan-report.${VERACODE_BUILD_ID}"
+
+# Get detailed report as XML
+say "👉 Retrieving the detailed report XML for BUILD_ID = [${VERACODE_BUILD_ID}]..."
+TARGET_XML="${TARGET_BASE}.xml"
+"${VERACODE}" -action DetailedReport -buildid "${VERACODE_BUILD_ID}" -format xml -outputfilepath "${TARGET_XML}" || fail "Failed to retrieve the detailed report XML"
+read SUM REST < <("${SHA256SUM}" "${TARGET_XML}")
+BYTES="$("${STAT}" -c "%s" "${TARGET_XML}")"
+say "\t✅ Detailed report XML retrieved as [${TARGET_XML}] (size $(printf "%'d" "${BYTES}") bytes, checksum = ${SUM})"
+
+# Get detailed report as PDF
+TARGET_PDF="${TARGET_BASE}.pdf"
+say "👉 Retrieving the detailed report PDF for BUILD_ID = [${VERACODE_BUILD_ID}]..."
+"${VERACODE}" -action DetailedReport -buildid "${VERACODE_BUILD_ID}" -format pdf -outputfilepath "${TARGET_PDF}" || fail "Failed to retrieve the detailed report PDF"
+read SUM REST < <("${SHA256SUM}" "${TARGET_PDF}")
+BYTES="$("${STAT}" -c "%s" "${TARGET_PDF}")"
+say "\t✅ Detailed report PDF retrieved as [${TARGET_PDF}] (size $(printf "%'d" "${BYTES}") bytes, checksum = ${SUM})"
+
+SCAN_SCORE="$("${XMLSTARLET}" sel -N "dr=https://www.veracode.com/schema/reports/export/1.0" -t -v "/dr:detailedreport/dr:static-analysis/@score" < "${TARGET_XML}")"
+say "⚠️ The scan score is ${SCAN_SCORE}"
+
+exit 0

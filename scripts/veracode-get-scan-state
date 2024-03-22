@@ -1,0 +1,51 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+set -euo pipefail
+
+timestamp() {
+	/usr/bin/date -Ins -u
+}
+
+say() {
+	echo -e "$(timestamp): ${@}"
+}
+
+fail() {
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} appId buildId" 1>&2
+	exit 1
+}
+
+[ ${#} -eq 2 ] || usage
+
+# Get from parameters
+APP_NAME="${1}"
+[ -n "${APP_NAME}" ] || fail "The application name may not be the empty string"
+
+BUILD_ID="${2}"
+[ -n "${BUILD_ID}" ] || fail "The build id may not be the empty string"
+
+VERACODE="$(type -P veracode 2>/dev/null)" || fail "The veracode executable could not be found in the PATH"
+XMLSTARLET="$(type -P xmlstarlet 2>/dev/null)" || fail "The xmlstarlet executable could not be found in the PATH"
+
+[ -v VERACODE_API_KEY_ID ] || fail "The VERACODE_API_KEY_ID variable is not set, cannot continue"
+[ -n "${VERACODE_API_KEY_ID}" ] || fail "The VERACODE_API_KEY_ID variable has an empty value, cannot continue"
+[ -v VERACODE_API_KEY_SECRET ] || fail "The VERACODE_API_KEY_SECRET variable is not set, cannot continue"
+[ -n "${VERACODE_API_KEY_SECRET}" ] || fail "The VERACODE_API_KEY_SECRET variable has an empty value, cannot continue"
+
+# Compute the application ID based on the name
+APP_ID="$("${BASEDIR}/veracode-get-app-id" "${APP_NAME}")" || fail "Failed to get the application ID for [${APP_NAME}]"
+
+BUILDINFO="$("${VERACODE}" -action GetBuildInfo -appid "${APP_ID}" -buildid "${BUILD_ID}" -format xml)" || fail "Failed to fetch the build information!"
+
+STATUS="$("${XMLSTARLET}" sel -N "bi=https://analysiscenter.veracode.com/schema/4.0/buildinfo" -t -v "/bi:buildinfo/bi:build/bi:analysis_unit/@status" <<< "${BUILDINFO}")" || fail "Failed to get the build status for Application [${APP_NAME}], build [${BUILD_ID}]"
+
+echo "${STATUS}"
+exit 0

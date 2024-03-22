@@ -1,0 +1,114 @@
+#!/bin/bash
+set -euo pipefail
+
+timestamp()
+{
+	date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}" 1>&2
+}
+
+warn()
+{
+	say "⚠️ WARNING: ${@}"
+}
+
+err()
+{
+	say "❌ ERROR: ${@}"
+}
+
+fail()
+{
+	say "❌ ${@}"
+	exit ${EXIT_CODE:-1}
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} workflow [param1=value1 param2=value2 ... paramN=valueN]" 1>&2
+	exit 1
+}
+
+[ ${#} -ge 1 ] || usage
+
+WORKFLOW="${1}"
+[ -n "${WORKFLOW}" ] || fail "The workflow may not be an empty string"
+shift
+
+PARAMS=()
+for p in "${@}" ; do
+	[ -z "${p}" ] && continue
+	[[ "${p}" =~ ^[0-9a-zA-Z_]+=.*$ ]] || { warn "The parameter specification [${p}] is not valid - must be in the form name=value" ; continue ; }
+	PARAMS+=(-f "${p}")
+done
+
+GH_USER_FLAGS=()
+[ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
+
+PROJECT="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || fail "Unable to identify the GitHub project"
+
+say "👉 Launching the GH Workflow [${WORKFLOW}]"
+for p in "${PARAMS[@]}" ; do
+	[ "${p}" == "-f" ] && continue
+	say "\t${p}"
+done
+START="$(date -Is -u)"
+gh workflow run "${WORKFLOW}" "${PARAMS[@]}" || fail "Failed to launch the workflow run!"
+say "\t✅ Workflow launched!"
+
+# This is unelegant, but appears to be necessary
+say "👉 Waiting for the workflow to start (up to 5 minutes)..."
+
+WAIT_START="$(date +%s)"
+RUN_ID=""
+while true ; do
+
+	# Get the run ID ... this may fail if the workflows are being launched rapid-fire
+	# or there's a race to run the job. That's why this job won't be able to be run
+	# concurrently.
+	RUN_ID="$(
+		gh run list \
+			"${GH_USER_FLAGS[@]}" \
+			--event workflow_dispatch \
+			--created "${START}..$(date -Is -u)" \
+			--json databaseId \
+			--jq '.[].databaseId' 2>&1
+	)" || fail "Failed to compute the run ID:\n${RUN_ID}"
+	[ -n "${RUN_ID}" ] && break
+
+	NOW="$(date +%s)"
+	[ $(( NOW - WAIT_START )) -lt 300 ] || fail "Timed out trying to identify the launched run ID"
+	sleep 5 || fail "Interrupted while sleeping, cannot continue"
+done
+
+# Wait for the run to complete
+say "\t✅ Workflow started with run ID [${RUN_ID}]..."
+if URL="$(gh run view "${RUN_ID}" --json url --jq .url 2>&1)" ; then
+	say "\t✅ Workflow Run URL: ${URL}"
+	URL="${URL}"
+else
+	warn "Unable to compute the run's URL (rc=${?}): ${URL}"
+	URL=""
+fi
+
+cat <<-EOF
+project: ${PROJECT@Q}
+workflow: ${WORKFLOW@Q}
+parameters:$(
+	if [ ${#} -gt 0 ] ; then
+		echo -e ""
+		for p in "${@}" ; do
+			[[ "${p}" =~ ^([0-9a-zA-Z_]+)=(.*)$ ]] || continue
+			echo -e "  ${BASH_REMATCH[1]}: ${BASH_REMATCH[2]@Q}"
+		done
+	else
+		echo -e " {}"
+	fi
+)
+runId: ${RUN_ID@Q}
+runUrl: ${URL@Q}
+EOF

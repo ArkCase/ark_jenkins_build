@@ -1,0 +1,49 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} scope"
+	exit 1
+}
+
+[ ${#} -ne 1 ] && usage
+
+SCOPE="${1}"
+[[ "${SCOPE}" =~ ^@[^[:space:]]+$ ]] || fail "Invalid scope format: [${SCOPE}] - must match @scope-name"
+
+[ -z "${STOW_URL}" ] && fail "The STOW_URL variable is empty"
+[[ "${STOW_URL}" =~ ^https?://[-a-zA-Z0-9]+(\.[-a-zA-Z0-9]+)*(/.*)?$ ]] || fail "The STOW_URL value [${STOW_URL}] is not a valid URL"
+
+[ -v DISABLE_DEPLOY ] || DISABLE_DEPLOY="false"
+if as_boolean "${DISABLE_DEPLOY}" ; then
+	echo -e "Deployment is disabled - skipping scope [${SCOPE}] to ${STOW_URL}!"
+	exit 0
+fi
+
+[ -v LERNA_FILE ] || LERNA_FILE="lerna.json"
+if [ ! -f "${LERNA_FILE}" ] ; then
+	say "No lerna configuration found at [${LERNA_FILE}], cannot deploy"
+	exit 0
+fi
+
+STOW_AUTH="$(echo -n "${STOW_USER}:${STOW_PASS}" | /usr/bin/base64)"
+
+# Remove the scheme, if present...
+STOW_PREFIX="${STOW_URL}"
+[[ "${STOW_PREFIX}" =~ ^https?:(//.*) ]] && STOW_PREFIX="${BASH_REMATCH[1]}"
+# Add a final slash, if necessary
+[[ "${STOW_PREFIX}" =~ /$ ]] || STOW_PREFIX+="/"
+
+npm config set "${SCOPE}:registry=${STOW_URL}"
+npm config set "${STOW_PREFIX}:_auth=${STOW_AUTH}"
+
+exec lerna exec -- "npm publish --scope=${SCOPE}"

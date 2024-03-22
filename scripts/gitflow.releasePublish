@@ -1,0 +1,67 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+
+FUNCTIONS="${BASEDIR}/.functions"
+if ! . "${FUNCTIONS}" ; then
+	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
+	exit 1
+fi
+unset FUNCTIONS
+
+usage() {
+	echo -e "usage: ${BASH_ARGV0} (start|end) releaseVersion"
+	exit 1
+}
+
+[ ${#} -ne 2 ] && usage
+
+OP="${1,,}"
+case "${OP}" in
+	start | end ) shift ;;
+	* ) fail "Uknown operation [${1}] - can't continue" ;;
+esac
+
+RELEASE_VERSION="$(echo -n "${1}" | /usr/bin/tr -d '\n\r')"
+[ -z "${RELEASE_VERSION}" ] || fail "The release version may not be the empty string"
+
+checkout() {
+	# Check out the release branch
+	local RELEASE_BRANCH="release/${1}"
+	if ! /usr/bin/git checkout "${RELEASE_BRANCH}" &>/dev/null ; then
+		/usr/bin/git checkout -b "${RELEASE_BRANCH}" || return 1
+		/usr/bin/git pull || return 1
+	fi
+	return 0
+}
+
+start() {
+	local RELEASE_VERSION="${1}"
+
+	checkout "${RELEASE_VERSION}" || fail "Failed to check out the release branch for ${RELEASE_VERSION}"
+
+	# set the artifact's version to "${RELEASE_VERSION}"
+	"${BASEDIR}/set-project-version" "${RELEASE_VERSION}"
+
+	# Do we have changes to commit and push?
+	/usr/bin/git diff-index --quiet HEAD -- || git commit -a -m "Version bump to ${RELEASE_VERSION}"
+	/usr/bin/git push --set-upstream origin "$(git branch --show-current)"
+}
+
+end() {
+	local RELEASE_VERSION="${1}"
+
+	checkout "${RELEASE_VERSION}" || fail "Failed to check out the release branch for ${RELEASE_VERSION}"
+
+	# Run the git flow release
+	/usr/bin/git flow release finish --showcommands --push --pushtag --message "Release ${RELEASE_VERSION} complete"
+}
+
+set -euo pipefail
+
+# Ok ... we're ready to go, so do the git flow init
+"${BASEDIR}/gitflow.init"
+
+# Execute the operation
+"${OP}" "${@}"
