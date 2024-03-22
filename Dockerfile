@@ -168,7 +168,6 @@ RUN apt-get update && \
 #
 # Install all the base tools framework
 #
-ENV PATH="/tools/bin:${PATH}"
 COPY --chown=root:root scripts/ /usr/local/bin
 
 #
@@ -221,6 +220,7 @@ RUN mvn-get "${VCODE_SRC}" "/tmp/veracode.zip" && \
 # Execute the multiflavor tool installations
 #
 COPY --chown=root:root scripts/install-tool /usr/local/bin
+ADD --chown=root:root tools /tools
 RUN install-tool /tools/*
 
 #

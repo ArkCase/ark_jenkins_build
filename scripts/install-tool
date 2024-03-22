@@ -39,14 +39,13 @@ fail() {
 list_artifacts()
 {
 	local SRC="${1}"
-	cat "${SRC}" | sed -e '/^\s*#/d'
+	cat "${SRC}" | sed -e '/^\s*#/d' -e '/^\s*$/d'
 }
 
-base_install()
+select_latest()
 {
-	local VERSION="${1}"
-	local ARTIFACT="${2}"
-	doing "Applying the basic installation steps for [${VERSION}] from [${ARTIFACT}]..."
+	# Find the version that's the latest, and use it
+	local VERSIONS=("${@}")
 }
 
 usage()
@@ -57,7 +56,6 @@ usage()
 
 [ ${#} -gt 0 ] || usage
 
-BASE_INSTALLER="base_install"
 doing "Installing ${#} tools..."
 for TOOL in "${@}" ; do
 	[ -e "${TOOL}" ] && [ -d "${TOOL}" ] && [ -r "${TOOL}" ] && [ -x "${TOOL}" ] || {
@@ -70,22 +68,26 @@ for TOOL in "${@}" ; do
 		warn "The path [${TOOL}] does not have an artifacts manifest, skipping!"
 		continue
 	}
+	
+	INSTALLER="${TOOL}/.install"
+	[ -e "${INSTALLER}" ] && [ -f "${INSTALLER}" ] && [ -x "${INSTALLER}" ] || {
+		warn "The path [${TOOL}] does not have an installer script, skipping!"
+		continue
+	}
 
 	TOOL="$(readlink -f "${TOOL}")"
 	ARTIFACTS="$(readlink -f "${ARTIFACTS}")"
-	
-	INSTALLER="${TOOL}/.install"
-	[ -e "${INSTALLER}" ] && [ -f "${INSTALLER}" ] && [ -x "${INSTALLER}" ] || INSTALLER="${BASE_INSTALLER}"
 
+	VERSIONS=()
 	doing "Installing the tool from [${TOOL}]..."
 	while read VERSION ARTIFACT ; do
 		doing "Processing version ${VERSION} from [${ARTIFACT}]..."
 		if ( "${INSTALLER}" "${VERSION}" "${ARTIFACT}" ) ; then
-			err "Installation failed!"
-		else
+			VERSION+=("${VERSION}")
 			ok "Installation complete!"
+		else
+			err "Installation failed!"
 		fi
 	done < <(list_artifacts "${ARTIFACTS}")
-
-	select_latest "${TOOL}"
+	select_latest "${VERSIONS[@]}"
 done
