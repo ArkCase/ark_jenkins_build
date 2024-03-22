@@ -1,0 +1,8 @@
+#!/bin/bash
+echo "Setting the GIT identity"
+
+[ -z "${GIT_USERNAME}" ] && GIT_USERNAME="svc.10.1.jenkins"
+/usr/bin/git config --global user.name "${GIT_USERNAME}"
+
+[ -z "${GIT_USERMAIL}" ] && GIT_USERMAIL="${GIT_USERNAME}@armedia.com"
+/usr/bin/git config --global user.email "${GIT_USERMAIL}"

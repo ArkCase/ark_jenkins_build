@@ -1,0 +1,8 @@
+# export NPM_CONFIG_PREFIX="/cache/node"
+
+export NODE_CACHE="/cache/node"
+npm config delete prefix 
+npm config set prefix "${NODE_CACHE}"
+export npm_config_cache="${NODE_CACHE}/npm"
+export NODE_PATH="${NODE_CACHE}/lib/node_modules:${NODE_HOME}/lib/node_modules"
+export PATH="${NODE_CACHE}/lib/node_modules/.bin:${PATH}"

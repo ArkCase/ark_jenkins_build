@@ -210,6 +210,12 @@ ADD --chown=root:root tools /tools
 RUN install-tool /tools/*
 
 #
+# Add the default initializers & configurators
+#
+COPY --chown=root:root init.d /init.d
+COPY --chown=root:root conf.d /conf.d
+
+#
 # Create the user and their home
 #
 RUN groupadd --system "build"
