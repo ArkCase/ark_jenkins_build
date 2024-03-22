@@ -57,6 +57,7 @@ usage()
 [ ${#} -gt 0 ] || usage
 
 doing "Installing ${#} tools..."
+FAILED=()
 for TOOL in "${@}" ; do
 	[ -e "${TOOL}" ] && [ -d "${TOOL}" ] && [ -r "${TOOL}" ] && [ -x "${TOOL}" ] || {
 		warn "The path [${TOOL}] does not exist or is not an accessible directory, skipping!"
@@ -82,12 +83,16 @@ for TOOL in "${@}" ; do
 	doing "Installing the tool from [${TOOL}]..."
 	while read VERSION ARTIFACT ; do
 		doing "Processing version ${VERSION} from [${ARTIFACT}]..."
-		if ( "${INSTALLER}" "${VERSION}" "${ARTIFACT}" ) ; then
+		if ( cd "${TOOL}" && ./.install "${VERSION}" "${ARTIFACT}" ) ; then
 			VERSION+=("${VERSION}")
 			ok "Installation complete!"
 		else
 			err "Installation failed!"
+			FAILED+=("${TOOL}@${VERSION}")
 		fi
 	done < <(list_artifacts "${ARTIFACTS}")
 	select_latest "${VERSIONS[@]}"
 done
+
+[ ${#FAILED[@]} -eq 0 ] || fail "The following tool versions did not install properly: ${FAILED[@]}"
+exit 0
