@@ -1,5 +1,11 @@
 # export NPM_CONFIG_PREFIX="/cache/node"
 
+# This is safe to do, because in all our CI/CD builds, we're going to
+# be using "the same" machine (i.e. identical containers).
+#
+# We'll see what this dredges up... XD
+export NX_REJECT_UNKNOWN_LOCAL_CACHE=0
+
 export NODE_CACHE="/cache/node"
 npm config delete prefix 
 npm config set prefix "${NODE_CACHE}"
