@@ -13,6 +13,6 @@ while true ; do
 	N="${P%.*}"
 	[ "${P}" == "${N}" ] && break
 
-	ln -v "${P}" "${N}"
+	ln -sv "${P}" "${N}"
 	P="${N}"
 done
