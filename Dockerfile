@@ -26,8 +26,6 @@ ARG YARN_KEYRING="https://dl.yarnpkg.com/debian/pubkey.gpg"
 ARG YARN_REPO="https://dl.yarnpkg.com/debian/"
 ARG AWS_SRC="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
 ARG AWX_SRC="https://releases.ansible.com/ansible-tower/cli/ansible-tower-cli-latest.tar.gz"
-ARG MVN_VER="3.9.6"
-ARG MVN_SRC="https://dlcdn.apache.org/maven/maven-3/${MVN_VER}/binaries/apache-maven-${MVN_VER}-bin.tar.gz"
 ARG GIT_LFS_VER="3.5.1"
 ARG GIT_LFS_SRC="https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VER}/git-lfs-linux-amd64-v${GIT_LFS_VER}.tar.gz"
 ARG VCODE_VER="23.8.12.0"
@@ -195,18 +193,6 @@ RUN mkdir -p "/tmp/lfs" && \
     bash install.sh && \
     cd "/tmp" && \
     rm -rf "lfs"
-
-#
-# Add Maven
-#
-ENV MVN_DIR="/tools/mvn/${MVN_VER}"
-RUN mkdir -p "${MVN_DIR}" && \
-    curl -fsSL "${MVN_SRC}" | tar -C "${MVN_DIR}" --strip-components=1 -xzvf - && \
-    cd "${MVN_DIR}" && \
-	cd .. && \
-	ln -sv "${MVN_VER}" "latest" && \
-	ln -sv "${MVN_VER}" "${MVN_VER%.*}" && \
-	ln -sv "${MVN_VER%.*}" "${MVN_VER%%.*}"
 
 #
 # Install the Veracode API Wrapper
