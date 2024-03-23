@@ -1,0 +1,92 @@
+#!/bin/bash
+SCRIPT="${0}"
+BASEDIR="$(dirname "${0}")"
+SCRIPT="$(basename "${0}")"
+INVOKED="${0}"
+
+set -eou pipefail
+
+say() {
+	echo -e "${@}"
+}
+
+err() {
+	say "${@}" 1>&2
+}
+
+fail() {
+	err "ERROR: ${@}"
+	exit 1
+}
+
+usage() {
+	err "usage: ${INVOKED} java-exe fs-dir [jvm-args]"
+	exit 1
+}
+
+[ ${#} -lt 2 ] && usage
+
+ARGS=("${@}")
+set --
+. /configure || fail "Failed to configure properly"
+set -- "${ARGS[@]}"
+
+JAVA_EXE="${1}"
+[ -n "${JAVA_EXE}" ] || fail "Must provide a non-empty java-exe parameter"
+
+# If it doesn't have any slashes, then it's assuming the executable must be in the path
+if ! [[ "${JAVA_EXE}" =~ / ]] ; then
+	OLD_EXE="${JAVA_EXE}"
+	JAVA_EXE="$(which "${JAVA_EXE}" 2>/dev/null)"
+	[ -n "${JAVA_EXE}" ] || fail "Could not find the Java executable [${OLD_EXE}] in the path"
+fi
+
+[ -e "${JAVA_EXE}" ] || fail "The file [${JAVA_EXE}] can't be used as the Java executable (does not exist)"
+[ -f "${JAVA_EXE}" ] || fail "The file [${JAVA_EXE}] can't be used as the Java executable (is not a regular file)"
+[ -r "${JAVA_EXE}" ] || fail "The file [${JAVA_EXE}] can't be used as the Java executable (not readable)"
+[ -x "${JAVA_EXE}" ] || fail "The file [${JAVA_EXE}] can't be used as the Java executable (not executable)"
+
+FS_DIR="${2}"
+[ -n "${FS_DIR}" ] || fail "Must provide a non-empty fs-dir parameter"
+[ -e "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (does not exist)"
+[ -d "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (is not a directory)"
+[ -r "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (is not readable)"
+[ -w "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (is not writable)"
+[ -x "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (is not executable)"
+
+shift 2
+JVM_ARGS=(${@})
+
+say "FS Dir   = [${FS_DIR}]"
+say "Java EXE = [${JAVA_EXE}]"
+${JAVA_EXE} -version
+say "JVM Args = [${JVM_ARGS[@]}]"
+
+# Now, download the Agent JAR ...
+
+# First, make sure we have the URL
+[ -v JENKINS_URL ] || JENKINS_URL=""
+if [ -z "${JENKINS_URL}" ] ; then
+	URL_FILE="${BASEDIR}/jenkins.url"
+	say "No Jenkins URL was defined in the environment, trying to fetch it from [${URL_FILE}]..."
+	[ -e "${URL_FILE}" ] || fail "No URL file found"
+	[ -f "${URL_FILE}" ] || fail "The path [${URL_FILE}] is not a regular file"
+	[ -r "${URL_FILE}" ] || fail "The file [${URL_FILE}] is not readable"
+	JENKINS_URL="$(sed -e '/^\s*#/d' -e '/^\s*$/d' < "${URL_FILE}" | head -1 | tr -d '\n')"
+	[ -n "${JENKINS_URL}" ] || fail "The URL file did not contain any valid Jenkins URL"
+fi
+
+# Fetch the agent from ${JENKINS_URL}/jnlpJars/agent.jar
+AGENT_PATH="/jnlpJars/agent.jar"
+[[ "${JENKINS_URL}" =~ /$ ]] && AGENT_PATH="${AGENT_PATH:1}"
+SRC_URL="${JENKINS_URL}${AGENT_PATH}"
+AGENT_JAR="${HOME}/jenkins-agent.jar"
+say "Downloading the agent from [${SRC_URL}] into [${AGENT_JAR}]..."
+/usr/bin/curl -fsSL -o "${AGENT_JAR}" "${SRC_URL}" || fail "Failed to download the agent"
+
+exec "${JAVA_EXE}" \
+	"${JVM_ARGS[@]}" \
+	-jar "${AGENT_JAR}" \
+	-noReconnect \
+	-noKeepAlive \
+	-agentLog "${FS_DIR}/agent.log"
