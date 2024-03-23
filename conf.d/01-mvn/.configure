@@ -1,1 +1,8 @@
-export MVN_CACHE="/cache/mvn"
+#!/bin/bash
+
+#
+# Make sure the Maven cache is properly configured
+#
+[ -v MVN_CACHE ] || MVN_CACHE=""
+[ -n "${MVN_CACHE}" ] || MVN_CACHE="/cache/mvn"
+export MVN_CACHE

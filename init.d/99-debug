@@ -1,10 +1,12 @@
 #!/bin/bash
 
+DEBUG="false"
 [ -e "/conf.d/.debug" ] && DEBUG="true"
-DEBUG="${DEBUG:-false}"
 
 case "${DEBUG,,}" in
-	true )	echo "CURRENT USER = $(id -a)"
+	true | t | yes | y | enable | enabled | en | on )
+		DEBUG="true"
+		echo "CURRENT USER = $(id -a)"
 		echo "***************************"
 		echo "**** BEGIN ENVIRONMENT ****"
 		echo "***************************"
@@ -14,8 +16,9 @@ case "${DEBUG,,}" in
 		echo "***************************"
 		;;
 
-	* )	;;
+	* )	DEBUG="false" ;;
 esac
+export DEBUG
 
 # Just so we don't return a non-0 value
 true
