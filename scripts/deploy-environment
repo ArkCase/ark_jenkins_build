@@ -29,9 +29,14 @@ warn()
 	say "⚠️ ${@}"
 }
 
-fail()
+err()
 {
 	say "❌ ${@}" 1>&2
+}
+
+fail()
+{
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -228,14 +233,19 @@ patch_namespace "${NAMESPACE}" "${CLUSTER_ID}" "${PROJECT_ID}" || fail "Failed t
 
 # Execute the new installation (we use upgrade b/c we want to future
 # proof this for when we actually do in-place upgrades)
+RC=0
 execute \
 	"${HELM}" upgrade --install "${RELEASE}" "${CHART}" \
 		--namespace "${NAMESPACE}" \
 		--wait \
 		--timeout "${DEPLOY_TIMEOUT}" \
 		"${VALUES[@]}" \
-		"${@}" || \
-	fail "The Helm deployment has failed, please review the logs"
+		"${@}" || RC=${?}
 
-# All is well... exit!
-exit 0
+# If all is well... exit!
+[ ${RC} -eq 0 ] && exit 0
+
+# Something went wrong, try to offer up more information
+err "The Helm deployment has failed, please review the logs"
+"${KUBECTL}" --namespace "${NAMESPACE}" get pods
+exit ${RC}
