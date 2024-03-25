@@ -193,13 +193,9 @@ is_privileged_container() {
 	return "${RET}"
 }
 
-# First things first: update the CA trusts, in case they're needed (only if SUDO is available)
-say "Updating CA certificate trusts..."
-sudo -n /usr/sbin/update-ca-certificates || say "ERROR: CA trusts not updated (no sudo access?) ... skipping"
-
 # Mount an overlay folder for tools and cache?
 export PRIVILEGED="false"
-COWS=("${TOOL_DIR}" "${CACHE_DIR}")
+COWS=("${CACHE_DIR}")
 if is_privileged_container ; then
 	say "Running in privileged mode, creating the COW directories"
 	PRIVILEGED="true"
@@ -272,7 +268,6 @@ for P in "${NEW_PATHS[@]}" ; do
 	[ -n "${NEW_PATH}" ] && NEW_PATH+=":"
 	NEW_PATH+="${P}"
 done
-NEW_PATH="${TOOL_DIR}/bin:${NEW_PATH}"
 
 # We use sanitize_path to end up with a clean path with no duplicate or empty entries
 # We prioritize the new path to give opportunity to override system-default tools

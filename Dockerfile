@@ -235,6 +235,12 @@ COPY --chown=root:root 00-build /etc/sudoers.d
 RUN chmod 0640 /etc/sudoers.d/00-build
 
 #
+# Add the SSL trusts
+#
+COPY --chown=root:root ssl-trusts/ /usr/local/share/ca-certificates/
+RUN /usr/sbin/update-ca-certificates
+
+#
 # Now do the configurations for the actual user
 #
 USER "${APP_USER}"
