@@ -1,0 +1,49 @@
+#!/bin/bash
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
+SCRIPT="$(basename "${SCRIPT}")"
+
+[ -v CONTAINER_NAME ] || CONTAINER_NAME=""
+[ -n "${CONTAINER_NAME}" ] || CONTAINER_NAME="build-test"
+
+CONTAINER_NAME="${CONTAINER_NAME}-$(date -u +%Y%m%d%H%M%S)"
+
+[ -v IMAGE_REG ] || IMAGE_REG=""
+[ -n "${IMAGE_REG}" ] || IMAGE_REG="public.ecr.aws"
+
+[ -v IMAGE_REPO ] || IMAGE_REPO=""
+[ -n "${IMAGE_REPO}" ] || IMAGE_REPO="arkcase/jenkins-build"
+
+[ -v IMAGE_VER ] || IMAGE_VER=""
+[ -n "${IMAGE_VER}" ] || IMAGE_VER="latest"
+
+[ -v IMAGE ] || IMAGE="${IMAGE_REG}/${IMAGE_REPO}:${IMAGE_VER}"
+
+MOUNTS=()
+for m in cache src ; do
+	M="${BASEDIR}/${m}"
+	[ -e "${M}" ] && MOUNTS+=(-v "$(readlink -f "${M}"):/${m}")
+done
+
+# Enable docker access
+# [ -v DOCKER_SOCKET ] || DOCKER_SOCKET="/var/run/docker.sock"
+# MOUNTS+=(-v "${DOCKER_SOCKET}:/var/run/docker.sock")
+
+# Some base tool versions
+[ -v JAVA_VERSION ] || JAVA_VERSION=""
+[ -n "${JAVA_VERISON}" ] || JAVA_VERSION="11"
+
+[ -v NODE_VERSION ] || NODE_VERSION=""
+[ -n "${NODE_VERSION}" ] || NODE_VERSION="16.14"
+
+set -x
+exec /usr/bin/docker run \
+	--privileged \
+	--rm -it \
+	--name "${CONTAINER_NAME}" \
+	--hostname "${CONTAINER_NAME}" \
+	"${MOUNTS[@]}" \
+	-e JAVA="${JAVA_VERSION}" \
+	-e NODE="${NODE_VERSION}" \
+	-e DEBUG="${DEBUG:-false}" \
+	"${IMAGE}" "${@}"
