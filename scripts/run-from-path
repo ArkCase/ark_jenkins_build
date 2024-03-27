@@ -1,5 +1,11 @@
 #!/bin/bash
-[ -v BASH_ARGV0 ] || BASH_ARGV0="${0}"
+#
+# This script exists as a simple wrapper to execute commmands leveraging
+# shell's PATH if/when an executor process is unable to do so directly.
+#
+
+[ -v BASH_SOURCE ] || BASH_SOURCE="${0}"
+[ -v BASH_ARGV0 ] || BASH_ARGV0="${BASH_SOURCE}"
 
 usage() {
 	echo -e "usage: ${BASH_ARGV0} command..."
