@@ -87,6 +87,40 @@ ensure_namespace_exists()
 	return 1
 }
 
+sanitize_paths()
+{
+	local STR="${1}"
+	local SEP=":"
+	local PARTS=()
+
+	# First, split into parts so we can retain the
+	# declaration order
+	readarray -t PARTS < <(/usr/bin/tr "${SEP}" "\n" <<< "${STR}" | /usr/bin/sed -e '/^\s*$/d')
+	local LIST=":"
+	for P in "${PARTS[@]}" ; do
+		[ -n "${P}" ] || continue
+		# Skip it if already marked
+		/usr/bin/fgrep -q ":${P}:" <<< "${LIST}" && continue
+		LIST+="${P}:"
+		echo "${P}"
+	done
+}
+
+sanitize_common_dirs()
+{
+	local COMMON_DIRS=()
+	# We split this in two so it's easy to lift the sanitize_paths function for other purposes
+	readarray -t COMMON_DIRS < <(sanitize_paths "${1}")
+	for C in "${COMMON_DIRS[@]}" ; do
+		[[ "${C}" =~ ^(/*)(.*)$ ]] && C="${BASH_REMATCH[2]}"
+		if [[ "${C}" =~ (^|/)[.]{1,2}(/|$) ]] ; then
+			warn "Skipping the common directory specification [${C}]: may not contain '.' or '..' as path components"
+			continue
+		fi
+		echo "${C}"
+	done
+}
+
 patch_namespace()
 {
 	local NAMESPACE="${1}"
@@ -162,7 +196,8 @@ shift
 # The directory where the common files (i.e. files shared across
 # directories) are stored.
 #
-COMMON_DIR="${BASE_DIR}/common"
+[ -v COMMON_DIRS ] || COMMON_DIRS="common"
+readarray -t COMMON_DIRS < <(sanitize_common_dirs "${COMMON_DIRS}")
 
 #
 # Ensure we got the right environment n ame
@@ -203,15 +238,18 @@ fi
 VALUES=()
 
 #
-# Step one: find the files in the "common" directory
+# Step one: find the common files
 #
-if [ -d "${COMMON_DIR}" ] ; then
-	while read V ; do
-		VALUES+=(-f "${V}")
-	done < <(/usr/bin/find "${COMMON_DIR}" -type f -iname '*.yaml' | /usr/bin/sort -u)
-else
-	warn "No common values folder found at [${BASE_DIR}]"
-fi
+for D in "${COMMON_DIRS[@]}" ; do
+	COMMON_DIR="${BASE_DIR}/${D}"
+	if [ -d "${COMMON_DIR}" ] ; then
+		while read V ; do
+			VALUES+=(-f "${V}")
+		done < <(/usr/bin/find "${COMMON_DIR}" -type f -iname '*.yaml' | /usr/bin/sort -u)
+	else
+		warn "No common values are being applied from [${COMMON_DIR}] - directory doesn't exist"
+	fi
+done
 
 #
 # Step two: find the files in the environment's directory
