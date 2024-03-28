@@ -20,6 +20,24 @@ fail()
 	exit ${EXIT_CODE:-1}
 }
 
+auth_params()
+{
+	local USER="${1}"
+	local PASS=""
+
+	if [ ${#} -eq 1 ] ; then
+		[[ "${USER}" =~ ^([^:]*)(:(.*))?$ ]] || true
+		USER="${BASH_REMATCH[1]}"
+		PASS="${BASH_REMATCH[3]}"
+	else
+		PASS="${2}"
+	fi
+
+	"${CAT}" <<-EOF
+	user "${USER}:${PASS}"
+	EOF
+}
+
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} cluster-name"
@@ -50,10 +68,11 @@ CLUSTER_NAME="${1}"
 
 CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
 JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
+CAT="$(type -P cat)" || fail "Could not find 'cat' in the path"
 SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
 
 CLUSTER_ID="$("${BASEDIR}/rancher-get-cluster-id" "${CLUSTER_NAME}")" || exit 1
 RANCHER_API_ENDPOINT+="/${CLUSTER_ID}"
-LIST="$("${CURL}" -fsSL -u "${RANCHER_TOKEN}" "${RANCHER_API_ENDPOINT}" | "${JQ}" -r ".data[] | .id + \" \" + .spec.displayName")" || fail "Could not find the project listing in cluster ${CLUSTER_NAME}"
+LIST="$("${CURL}" -fsSL --config <(auth_params "${RANCHER_TOKEN}") "${RANCHER_API_ENDPOINT}" | "${JQ}" -r ".data[] | .id + \" \" + .spec.displayName")" || fail "Could not find the project listing in cluster ${CLUSTER_NAME}"
 echo "${LIST}" | "${SORT}" -k 2
 exit 0

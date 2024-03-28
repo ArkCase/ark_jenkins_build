@@ -100,7 +100,8 @@ EOF
 
 say "👉 Adding the namespace ${NAMESPACE} into the project ${PROJECT_NAME} in the cluster ${CLUSTER_NAME}..."
 OUT="$(
-	"${CURL}" -sSL --config <(auth_params "${RANCHER_TOKEN}") \
+	"${CURL}" -sSL \
+	--config <(auth_params "${RANCHER_TOKEN}") \
 	--header "Content-Type: application/json" \
 	--data "${JSON}" \
 	"${RANCHER_API_ENDPOINT}" 2>&1

@@ -20,6 +20,24 @@ fail()
 	exit ${EXIT_CODE:-1}
 }
 
+auth_params()
+{
+	local USER="${1}"
+	local PASS=""
+
+	if [ ${#} -eq 1 ] ; then
+		[[ "${USER}" =~ ^([^:]*)(:(.*))?$ ]] || true
+		USER="${BASH_REMATCH[1]}"
+		PASS="${BASH_REMATCH[3]}"
+	else
+		PASS="${2}"
+	fi
+
+	"${CAT}" <<-EOF
+	user "${USER}:${PASS}"
+	EOF
+}
+
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} cluster-name"
@@ -50,8 +68,9 @@ CLUSTER_NAME="${1}"
 
 CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
 JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
+CAT="$(type -P cat)" || fail "Could not find 'cat' in the path"
 
-CLUSTER_ID="$("${CURL}" -fsSL -u "${RANCHER_TOKEN}" "${RANCHER_API_ENDPOINT}" | "${JQ}" -r ".data[] | select(.name == \"${CLUSTER_NAME}\") | .id")" || fail "Failed to query the cluster ID for [${CLUSTER_NAME}] (rc=${?})"
+CLUSTER_ID="$("${CURL}" -fsSL --config <(auth_params "${RANCHER_TOKEN}") "${RANCHER_API_ENDPOINT}" | "${JQ}" -r ".data[] | select(.name == \"${CLUSTER_NAME}\") | .id")" || fail "Failed to query the cluster ID for [${CLUSTER_NAME}] (rc=${?})"
 [ -n "${CLUSTER_ID}" ] || fail "No cluster ID was returned for [${CLUSTER_NAME}]"
 echo "${CLUSTER_ID}"
 exit 0

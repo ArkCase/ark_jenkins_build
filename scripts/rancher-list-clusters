@@ -20,6 +20,24 @@ fail()
 	exit ${EXIT_CODE:-1}
 }
 
+auth_params()
+{
+	local USER="${1}"
+	local PASS=""
+
+	if [ ${#} -eq 1 ] ; then
+		[[ "${USER}" =~ ^([^:]*)(:(.*))?$ ]] || true
+		USER="${BASH_REMATCH[1]}"
+		PASS="${BASH_REMATCH[3]}"
+	else
+		PASS="${2}"
+	fi
+
+	"${CAT}" <<-EOF
+	user "${USER}:${PASS}"
+	EOF
+}
+
 ADD_DESC="false"
 if [ ${#} -gt 0 ] ; then
 	case "${1,,}" in
@@ -36,6 +54,7 @@ fi
 
 CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
 JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
+CAT="$(type -P cat)" || fail "Could not find 'cat' in the path"
 SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
 
 #
@@ -47,4 +66,4 @@ SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
 QUERY=".data[] | .name"
 "${ADD_DESC}" && QUERY+=' + " " + .description'
 
-"${CURL}" -fsSL -u "${RANCHER_TOKEN}" "${RANCHER_API_ENDPOINT}" | "${JQ}" -r "${QUERY}" | "${SORT}"
+"${CURL}" -fsSL --config <(auth_params "${RANCHER_TOKEN}") "${RANCHER_API_ENDPOINT}" | "${JQ}" -r "${QUERY}" | "${SORT}"
