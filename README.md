@@ -1,6 +1,8 @@
-# Armedia Jenkins Build Image
+# Armedia Jenkins CI/CD Worker Image
 
-This repository contains the build image used for our internal Jenkins builds, as well as some general configurations required for our build processes to succeed. Specifically, the toolset consists of the following directories and scripts:
+This repository contains the second half of the Armedia CI/CD Worker Image. The first half, hosted [here](https://github.com/ArkCase/ark_jenkins_build_base), does the heaviest lifting by adding the most voluminous but least-changing bits of the image (i.e. the JDKs, the NodeJS installations, etc.). The goal is to facilitate rapid iteration on the actual worker image without having to incurr the heavy penalties of working on the heavier image that will rarely, if ever, require adjustment.
+
+The structure is the same as before:
 
 * ***cache*** : this directory is meant to store cacheable data that can be leveraged in common by multiple unrelated builds (i.e. the Maven .m2 repository, NodeJS caches, etc.)
 
@@ -14,7 +16,7 @@ This repository contains the build image used for our internal Jenkins builds, a
 
 ## Construction
 
-As can be seen in the Dockerfile, the tools are all downloaded and baked into the container image. The reason we chose this approach vs. using Jenkins's approach of copying the tools for us is time. This is **_much_** faster than the alternative, and since the container image need only be stored once, and generally isn't (re-)downloaded very frequently, its size wasn't that much of a concern overal.
+This Dockerfile is much simpler than before, since there are no heavy tools are installed.
 
 ## Initialization sequence
 
