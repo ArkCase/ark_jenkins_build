@@ -193,26 +193,12 @@ CHART="${1}"
 shift
 
 #
-# The directory where the common files (i.e. files shared across
-# directories) are stored.
-#
-[ -v COMMON_DIRS ] || COMMON_DIRS="common"
-readarray -t COMMON_DIRS < <(sanitize_common_dirs "${COMMON_DIRS}")
-
-#
 # Ensure we got the right environment n ame
 #
 ENVIRONMENT_NAME="${1}"
 [ -n "${ENVIRONMENT_NAME}" ] || fail "The environment name may not be the empty string"
 is_valid_name "${ENVIRONMENT_NAME}" || fail "Invalid environment name [${ENVIRONMENT_NAME}]"
 shift
-
-#
-# The root directory where the environment directories
-# are housed. The directory name must match the name
-# of the environment being deployed *EXACTLY*
-#
-ENV_DIR="${BASE_DIR}/envs/${ENVIRONMENT_NAME}"
 
 #
 # This information is useful because it will enable us to
@@ -240,6 +226,12 @@ VALUES=()
 #
 # Step one: find the common files
 #
+#
+# The directory where the common files (i.e. files shared across
+# directories) are stored.
+#
+[ -v COMMON_DIRS ] || COMMON_DIRS="common"
+readarray -t COMMON_DIRS < <(sanitize_common_dirs "${COMMON_DIRS}")
 for D in "${COMMON_DIRS[@]}" ; do
 	COMMON_DIR="${BASE_DIR}/${D}"
 	if [ -d "${COMMON_DIR}" ] ; then
@@ -247,13 +239,20 @@ for D in "${COMMON_DIRS[@]}" ; do
 			VALUES+=(-f "${V}")
 		done < <(/usr/bin/find "${COMMON_DIR}" -type f -iname '*.yaml' | /usr/bin/sort -u)
 	else
-		warn "No common values are being applied from [${COMMON_DIR}] - directory doesn't exist"
+		warn "No common values are being applied from [${COMMON_DIR}] - the directory doesn't exist"
 	fi
 done
 
 #
 # Step two: find the files in the environment's directory
 #
+#
+# The root directory where the environment directories
+# are housed. The directory name must match the name
+# of the environment being deployed *EXACTLY*
+#
+ENV_DIR="${BASE_DIR}/envs/${ENVIRONMENT_NAME}"
+
 if [ -d "${ENV_DIR}" ] ; then
 	while read V ; do
 		VALUES+=(-f "${V}")
