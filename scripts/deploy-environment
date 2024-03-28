@@ -121,40 +121,53 @@ sanitize_common_dirs()
 	done
 }
 
-patch_namespace()
+add_namespace_to_project()
 {
 	local NAMESPACE="${1}"
-	local CLUSTER_ID="${2}"
-	local PROJECT_ID="${3}"
+	local CLUSTER_NAME="${2}"
+	local PROJECT_NAME="${3}"
 
-	[ -n "${CLUSTER_ID}" ] || return 0
-	[ -n "${PROJECT_ID}" ] || return 0
+	[ -n "${CLUSTER_NAME}" ] || return 0
+	[ -n "${PROJECT_NAME}" ] || return 0
 
 	if is_deployment_disabled ; then
-		warn "Deployment disabled: the namespace would have been tagged with ${CLUSTER_ID}:${PROJECT_ID}"
+		warn "Deployment disabled: the namespace would have been added to the project ${CLUSTER_NAME}:${PROJECT_NAME}"
 		return 0
 	fi
 
 	#
-	# This patch allows the namespace to be added to a Rancher
-	# project automatically, which in turn allows us to control
-	# access very easily through group mappings
+	# If the patch approach continues to not work, we can
+	# substitute all the below code with this single script invocation
 	#
-	PATCH="$(
-	cat <<-EOF
+	# "${BASEDIR}/rancher-add-ns-to-project" "${NAMESPACE}" "${CLUSTER_NAME}" "${PROJECT_NAME}"
+
+	#
+	# Parse the output
+	#
+	local PROJECT_INFO="$("${BASEDIR}/rancher-get-project-id" "${CLUSTER_NAME}" "${PROJECT_NAME}")" || return ${?}
+	[[ "${PROJECT_INFO}" =~ ^(c-[^/]+)/(p-.*)$ ]] || fail "Invalid project information for ${CLUSTER_NAME}/${PROJECT_NAME}: [${PROJECT_INFO}]"
+
+	local CLUSTER_ID="${BASH_REMATCH[1]}"
+	is_valid_name "${CLUSTER_ID}" || fail "Invalid cluster ID for ${CLUSTER_NAME}: [${CLUSTER_ID}]"
+
+	local PROJECT_ID="${BASH_REMATCH[2]}"
+	is_valid_name "${PROJECT_ID}" || fail "Invalid project ID for ${PROJECT_NAME}: [${PROJECT_ID}]"
+
+	#
+	# We're good to go!
+	#
+	"${KUBECTL}" patch namespace "${NAMESPACE}" --patch-file /dev/stdin <<-EOF
 	{
-	  "metadata": {
-	    "annotations": {
-	      "field.cattle.io/projectId": "${CLUSTER_ID}:${PROJECT_ID}"
-	    },
-	    "labels": {
-	      "field.cattle.io/projectId": "${PROJECT_ID}"
-	    }
-	  }
+		"metadata": {
+			"annotations": {
+				"field.cattle.io/projectId": "${CLUSTER_ID}:${PROJECT_ID}",
+				"lifecycle.cattle.io/create.namespace-auth": "true"
+			},
+			"name": "${NAMESPACE}"
+		}
 	}
 	EOF
-	)"
-	"${KUBECTL}" patch namespace "${NAMESPACE}" -p "${PATCH}"
+
 	return ${?}
 }
 
@@ -208,12 +221,12 @@ shift
 [ -v RANCHER_PROJECT_INFO ] || RANCHER_PROJECT_INFO=""
 if [[ "${RANCHER_PROJECT_INFO}" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?)/([a-z0-9]([a-z0-9-]*[a-z0-9])?)$ ]] ; then
 	# Add the annotations to the existing namespace
-	CLUSTER_ID="${BASH_REMATCH[1]}"
-	PROJECT_ID="${BASH_REMATCH[3]}"
+	CLUSTER_NAME="${BASH_REMATCH[1]}"
+	PROJECT_NAME="${BASH_REMATCH[3]}"
 else
 	warn "No valid rancher project info, so will not take it into account (${RANCHER_PROJECT_INFO:-<empty string>})"
-	CLUSTER_ID=""
-	PROJECT_ID=""
+	CLUSTER_NAME=""
+	PROJECT_NAME=""
 fi
 
 #
@@ -262,7 +275,7 @@ else
 fi
 
 ensure_namespace_exists "${NAMESPACE}" || fail "Failed to ensure that the required namespace ${NAMESPACE} exists"
-patch_namespace "${NAMESPACE}" "${CLUSTER_ID}" "${PROJECT_ID}" || fail "Failed to apply the project information (${CLUSTER_ID}:${PROJECT_ID}) to the namespace ${NAMESPACE}"
+add_namespace_to_project "${NAMESPACE}" "${CLUSTER_NAME}" "${PROJECT_NAME}" || fail "Failed to apply the project information (${CLUSTER_NAME}:${PROJECT_NAME}) to the namespace ${NAMESPACE}"
 
 # Delete the old installation, since it's the safest bet to ensure
 # that the correct resources, containers, and deployments are used

@@ -1,0 +1,127 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+
+set -euo pipefail
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+fail()
+{
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+auth_params()
+{
+	local USER="${1}"
+	local PASS=""
+
+	if [ ${#} -eq 1 ] ; then
+		[[ "${USER}" =~ ^([^:]*)(:(.*))?$ ]] || true
+		USER="${BASH_REMATCH[1]}"
+		PASS="${BASH_REMATCH[3]}"
+	else
+		PASS="${2}"
+	fi
+
+	"${CAT}" <<-EOF
+	user "${USER}:${PASS}"
+	EOF
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} namespace cluster-name project-name"
+	exit 1
+}
+
+[ ${#} -eq 3 ] || usage
+
+#
+# Make sure we're given a solid token
+#
+[ -v RANCHER_TOKEN ] || RANCHER_TOKEN=""
+[ -n "${RANCHER_TOKEN}" ] || fail "Must provide a non-empty RANCHER_TOKEN value"
+[[ "${RANCHER_TOKEN}" =~ ^[a-zA-Z0-9_-]+:.+$ ]] || fail "The RANCHER_TOKEN format is invalid"
+
+#
+# Allow for a configurable API endpoint, just in case...
+#
+[ -v RANCHER_API_URL ] || RANCHER_API_URL=""
+[ -n "${RANCHER_API_URL}" ] || RANCHER_API_URL="https://rancher.armedia.com"
+
+# Remove trailing slashes from the URL
+[[ "${RANCHER_API_URL}" =~ ^(.*)/*$ ]] || fail "Invalid Rancher API URL [${RANCHER_API_URL}]"
+RANCHER_API_ENDPOINT="${BASH_REMATCH[1]}"
+
+NAMESPACE="${1}"
+[ -n "${NAMESPACE}" ] || fail "Must provide a non-empty namespace name"
+
+CLUSTER_NAME="${2}"
+[ -n "${CLUSTER_NAME}" ] || fail "Must provide a non-empty cluster name"
+
+PROJECT_NAME="${3}"
+[ -n "${PROJECT_NAME}" ] || fail "Must provide a non-empty project name"
+
+CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
+JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
+CAT="$(type -P cat)" || fail "Could not find 'cat' in the path"
+
+PROJECT_INFO="$("${BASEDIR}/rancher-get-project-id" "${CLUSTER_NAME}" "${PROJECT_NAME}")" || exit 1
+
+[[ "${PROJECT_INFO}" =~ ^([^/]+)/([^/]+)$ ]] || fail "Invalid project information: [${PROJECT_INFO}]"
+
+CLUSTER_ID="${BASH_REMATCH[1]}"
+PROJECT_ID="${BASH_REMATCH[2]}"
+
+RANCHER_API_ENDPOINT+="/k8s/clusters/${CLUSTER_ID}/v1/namespaces"
+
+JSON="$("${CAT}" <<-EOF
+{
+    "metadata": {
+        "annotations": {
+            "field.cattle.io/projectId": "${CLUSTER_ID}:${PROJECT_ID}",
+            "lifecycle.cattle.io/create.namespace-auth": "true"
+        },
+        "name": "${NAMESPACE}"
+    }
+}
+EOF
+)"
+
+say "👉 Adding the namespace ${NAMESPACE} into the project ${PROJECT_NAME} in the cluster ${CLUSTER_NAME}..."
+OUT="$(
+	"${CURL}" -sSL --config <(auth_params "${RANCHER_TOKEN}") \
+	--header "Content-Type: application/json" \
+	--data "${JSON}" \
+	"${RANCHER_API_ENDPOINT}" 2>&1
+)"
+
+read STATUS TYPE CODE < <("${JQ}" -r '((.status // "-") | tostring) + " " + (.type // "-") + " " + (.code // "-")' <<< "${OUT}")
+
+RESULT="added"
+case "${STATUS}" in
+
+	- ) fail "Failed to correctly parse the REST response: [${OUT}]" ;;
+
+	[1,2,3]?? ) ;;
+
+	409 ) [ "${CODE,,}" == "alreadyexists" ] || fail "Could not add the namespace ${NAMESPACE} into the project ${PROJECT_NAME} in cluster ${CLUSTER_NAME}: [${OUT}]"
+		RESULT="was already in the project"
+		;;
+
+	* ) fail "Could not add the namespace ${NAMESPACE} into the project ${PROJECT_NAME} in cluster ${CLUSTER_NAME}: [${OUT}]" ;;
+
+esac
+
+say "✅ Namespace ${RESULT}!"
+exit 0

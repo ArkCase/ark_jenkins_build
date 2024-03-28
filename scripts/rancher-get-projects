@@ -52,7 +52,7 @@ CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
 JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
 SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
 
-CLUSTER_ID="$("${BASEDIR}/get-rancher-cluster-id" "${CLUSTER_NAME}")" || exit 1
+CLUSTER_ID="$("${BASEDIR}/rancher-get-cluster-id" "${CLUSTER_NAME}")" || exit 1
 RANCHER_API_ENDPOINT+="/${CLUSTER_ID}"
 LIST="$("${CURL}" -fsSL -u "${RANCHER_TOKEN}" "${RANCHER_API_ENDPOINT}" | "${JQ}" -r ".data[] | .id + \" \" + .spec.displayName")" || fail "Could not find the project listing in cluster ${CLUSTER_NAME}"
 echo "${LIST}" | "${SORT}" -k 2
