@@ -72,6 +72,7 @@ CLUSTER_NAME="${2}"
 PROJECT_NAME="${3}"
 [ -n "${PROJECT_NAME}" ] || fail "Must provide a non-empty project name"
 
+KUBECTL="$(type -P kubectl)" || fail "Could not find 'kubectl' in the path"
 CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
 JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
 CAT="$(type -P cat)" || fail "Could not find 'cat' in the path"
@@ -85,15 +86,32 @@ PROJECT_ID="${BASH_REMATCH[2]}"
 
 RANCHER_API_ENDPOINT+="/k8s/clusters/${CLUSTER_ID}/v1/namespaces"
 
-JSON="$("${CAT}" <<-EOF
+PATCH_JSON="$("${CAT}" <<-EOF
 {
-    "metadata": {
-        "annotations": {
-            "field.cattle.io/projectId": "${CLUSTER_ID}:${PROJECT_ID}",
-            "lifecycle.cattle.io/create.namespace-auth": "true"
-        },
-        "name": "${NAMESPACE}"
-    }
+	"metadata": {
+		"annotations": {
+			"field.cattle.io/projectId": "${CLUSTER_ID}:${PROJECT_ID}"
+		},
+		"labels": {
+			"field.cattle.io/projectId": "${PROJECT_ID}"
+		}
+	}
+}
+EOF
+)"
+
+say "👉 Patching the namespace ${NAMESPACE} for the project ${PROJECT_NAME} in the cluster ${CLUSTER_NAME}..."
+"${KUBECTL}" patch namespace "${NAMESPACE}" -p "${PATCH_JSON}" || fail "Failed to patch the namespace ${NAMESPACE}:\n${PATCH_JSON}"
+
+API_JSON="$("${CAT}" <<-EOF
+{
+	"metadata": {
+		"annotations": {
+			"field.cattle.io/projectId": "${CLUSTER_ID}:${PROJECT_ID}",
+			"lifecycle.cattle.io/create.namespace-auth": "true"
+		},
+		"name": "${NAMESPACE}"
+	}
 }
 EOF
 )"
@@ -103,7 +121,7 @@ OUT="$(
 	"${CURL}" -sSL \
 	--config <(auth_params "${RANCHER_TOKEN}") \
 	--header "Content-Type: application/json" \
-	--data "${JSON}" \
+	--data "${API_JSON}" \
 	"${RANCHER_API_ENDPOINT}" 2>&1
 )"
 
