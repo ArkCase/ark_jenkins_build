@@ -219,7 +219,7 @@ shift
 # instead of doing something else
 #
 [ -v RANCHER_PROJECT_INFO ] || RANCHER_PROJECT_INFO=""
-if [[ "${RANCHER_PROJECT_INFO}" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?)/([a-z0-9]([a-z0-9-]*[a-z0-9])?)$ ]] ; then
+if [[ "${RANCHER_PROJECT_INFO}" =~ ^(.+)/(.+)$ ]] ; then
 	# Add the annotations to the existing namespace
 	CLUSTER_NAME="${BASH_REMATCH[1]}"
 	PROJECT_NAME="${BASH_REMATCH[3]}"
