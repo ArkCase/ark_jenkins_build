@@ -222,7 +222,7 @@ shift
 if [[ "${RANCHER_PROJECT_INFO}" =~ ^(.+)/(.+)$ ]] ; then
 	# Add the annotations to the existing namespace
 	CLUSTER_NAME="${BASH_REMATCH[1]}"
-	PROJECT_NAME="${BASH_REMATCH[3]}"
+	PROJECT_NAME="${BASH_REMATCH[2]}"
 else
 	warn "No valid rancher project info, so will not take it into account (${RANCHER_PROJECT_INFO:-<empty string>})"
 	CLUSTER_NAME=""
