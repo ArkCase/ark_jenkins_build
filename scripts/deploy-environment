@@ -135,39 +135,7 @@ add_namespace_to_project()
 		return 0
 	fi
 
-	#
-	# If the patch approach continues to not work, we can
-	# substitute all the below code with this single script invocation
-	#
-	# "${BASEDIR}/rancher-add-ns-to-project" "${NAMESPACE}" "${CLUSTER_NAME}" "${PROJECT_NAME}"
-
-	#
-	# Parse the output
-	#
-	local PROJECT_INFO="$("${BASEDIR}/rancher-get-project-id" "${CLUSTER_NAME}" "${PROJECT_NAME}")" || return ${?}
-	[[ "${PROJECT_INFO}" =~ ^(c-[^/]+)/(p-.*)$ ]] || fail "Invalid project information for ${CLUSTER_NAME}/${PROJECT_NAME}: [${PROJECT_INFO}]"
-
-	local CLUSTER_ID="${BASH_REMATCH[1]}"
-	is_valid_name "${CLUSTER_ID}" || fail "Invalid cluster ID for ${CLUSTER_NAME}: [${CLUSTER_ID}]"
-
-	local PROJECT_ID="${BASH_REMATCH[2]}"
-	is_valid_name "${PROJECT_ID}" || fail "Invalid project ID for ${PROJECT_NAME}: [${PROJECT_ID}]"
-
-	#
-	# We're good to go!
-	#
-	"${KUBECTL}" patch namespace "${NAMESPACE}" --patch-file /dev/stdin <<-EOF
-	{
-		"metadata": {
-			"annotations": {
-				"field.cattle.io/projectId": "${CLUSTER_ID}:${PROJECT_ID}",
-				"lifecycle.cattle.io/create.namespace-auth": "true"
-			},
-			"name": "${NAMESPACE}"
-		}
-	}
-	EOF
-
+	"${BASEDIR}/rancher-add-ns-to-project" "${NAMESPACE}" "${CLUSTER_NAME}" "${PROJECT_NAME}"
 	return ${?}
 }
 
