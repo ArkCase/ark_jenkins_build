@@ -4,15 +4,12 @@ BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
 
 set -euo pipefail
 
-[ -v DEPLOY_TIMEOUT ] || DEPLOY_TIMEOUT=""
-[ -n "${DEPLOY_TIMEOUT}" ] || DEPLOY_TIMEOUT="20m"
-
-[ -v DISABLE_DEPLOY ] || DISABLE_DEPLOY=""
-case "${DISABLE_DEPLOY,,}" in
-	true | t | yes | y ) DISABLE_DEPLOY="true" ;;
-	* ) DISABLE_DEPLOY="false" ;;
+[ -v DISABLE_VALIDATE ] || DISABLE_VALIDATE=""
+case "${DISABLE_VALIDATE,,}" in
+	true | t | yes | y ) DISABLE_VALIDATE="true" ;;
+	* ) DISABLE_VALIDATE="false" ;;
 esac
-export DISABLE_DEPLOY
+export DISABLE_VALIDATE
 
 timestamp()
 {
@@ -39,14 +36,15 @@ is_deployed()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	"${HELM}" get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
+	execute "${HELM}" get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
 	return ${?}
 }
 
-is_deployment_disabled()
+is_valid_name()
 {
-	"${DISABLE_DEPLOY}" && return 0
-	return 1
+	local STR="${1}"
+	[[ "${STR}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || return 1
+	return 0
 }
 
 execute()
@@ -55,7 +53,7 @@ execute()
 	# Show the command about to be executed
 	#
 	say "${@@Q}"
-	if is_deployment_disabled ; then
+	if "${DISABLE_VALIDATE}" ; then
 		warn "Deployment disabled: skipping the command execution"
 		return 0
 	fi
@@ -67,20 +65,27 @@ execute()
 	return ${?}
 }
 
+usage()
+{
+	echo -e "usage: ${BASH_SOURCE:-${0}} [namespace] release" 1>&2
+	exit 1
+}
+
+[ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
+
 HELM="$(type -P helm)" || fail "Failed to find helm in the path"
 KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
 
-if [ ! -v KUBECONFIG ] ; then
-	[ -v K8S_CONFIG ] && export KUBECONFIG="${!K8S_CONFIG}"
+if [ ${#} -eq 1 ] ; then
+	NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"
+	RELEASE="${1}"
+else
+	NAMESPACE="${1}"
+	RELEASE="${2}"
 fi
 
-[ -v NAMESPACE ] || NAMESPACE=""
-[ -n "${NAMESPACE}" ] || NAMESPACE="default"
-
-[ -v RELEASE ] || RELEASE=""
-[ -n "${RELEASE}" ] || RELEASE="arkcase"
-
-NS=(--namespace "${NAMESPACE}")
+is_valid_name "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
+is_valid_name "${RELEASE}" || fail "Invalid release name [${RELEASE}]"
 
 # Delete the old installation, since it's the safest bet to ensure
 # that the correct resources, containers, and deployments are used
@@ -90,7 +95,7 @@ is_deployed "${NAMESPACE}" "${RELEASE}" || fail "The release [${RELEASE}] is not
 say "👉 Deleting any existing test pods"
 execute \
 	"${KUBECTL}" delete pod \
-		"${NS[@]}" \
+		--namespace "${NAMESPACE}" \
 		--wait \
 		--now \
 		--cascade=foreground \
@@ -104,6 +109,7 @@ say "👉 Launching the Helm validation"
 # are retrieved, so we're going to skip that for now
 execute \
 	"${HELM}" test \
-		"${RELEASE}" "${NS[@]}" || \
+		"${RELEASE}" \
+		--namespace "${NAMESPACE}" || \
 	fail "The Helm deployment verification failed, please review the logs"
 say "\t✅ Helm deployment verified!"

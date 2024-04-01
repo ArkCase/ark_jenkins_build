@@ -50,19 +50,13 @@ is_valid_name()
 	return 0
 }
 
-is_deployment_disabled()
-{
-	"${DISABLE_UNDEPLOY}" && return 0
-	return 1
-}
-
 execute()
 {
 	#
 	# Show the command about to be executed
 	#
 	say "${@@Q}"
-	if is_deployment_disabled ; then
+	if "${DISABLE_UNDEPLOY}" ; then
 		warn "Undeployment disabled: skipping the command execution"
 		return 0
 	fi
@@ -91,10 +85,6 @@ usage()
 
 HELM="$(type -P helm)" || fail "Failed to find helm in the path"
 KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
-
-if [ ! -v KUBECONFIG ] ; then
-	[ -v K8S_CONFIG ] && export KUBECONFIG="${!K8S_CONFIG}"
-fi
 
 if [ ${#} -eq 1 ] ; then
 	NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"

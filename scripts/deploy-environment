@@ -55,19 +55,13 @@ is_valid_name()
 	return 0
 }
 
-is_deployment_disabled()
-{
-	"${DISABLE_DEPLOY}" && return 0
-	return 1
-}
-
 execute()
 {
 	#
 	# Show the command about to be executed
 	#
 	say "${@@Q}"
-	if is_deployment_disabled ; then
+	if "${DISABLE_DEPLOY}" ; then
 		warn "Deployment disabled: skipping the command execution"
 		return 0
 	fi
@@ -130,12 +124,7 @@ add_namespace_to_project()
 	[ -n "${CLUSTER_NAME}" ] || return 0
 	[ -n "${PROJECT_NAME}" ] || return 0
 
-	if is_deployment_disabled ; then
-		warn "Deployment disabled: the namespace would have been added to the project ${CLUSTER_NAME}:${PROJECT_NAME}"
-		return 0
-	fi
-
-	"${BASEDIR}/rancher-add-ns-to-project" "${NAMESPACE}" "${CLUSTER_NAME}" "${PROJECT_NAME}"
+	execute "${BASEDIR}/rancher-add-ns-to-project" "${NAMESPACE}" "${CLUSTER_NAME}" "${PROJECT_NAME}"
 	return ${?}
 }
 
@@ -149,10 +138,6 @@ usage()
 
 HELM="$(type -P helm)" || fail "Failed to find helm in the path"
 KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
-
-if [ ! -v KUBECONFIG ] ; then
-	[ -v K8S_CONFIG ] && export KUBECONFIG="${!K8S_CONFIG}"
-fi
 
 [ -v NAMESPACE ] || NAMESPACE=""
 [ -n "${NAMESPACE}" ] || NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"
@@ -250,7 +235,9 @@ add_namespace_to_project "${NAMESPACE}" "${CLUSTER_NAME}" "${PROJECT_NAME}" || f
 
 # Delete the old installation, since it's the safest bet to ensure
 # that the correct resources, containers, and deployments are used
-"${BASEDIR}/undeploy-environment" "${NAMESPACE}" "${RELEASE}" || exit ${?}
+#
+# Propagate the "disable" flag, to do nothing if we're testing
+DISABLE_UNDEPLOY="${DISABLE_DEPLOY}" "${BASEDIR}/undeploy-environment" "${NAMESPACE}" "${RELEASE}" || exit ${?}
 
 # Execute the new installation (we use upgrade b/c we want to future
 # proof this for when we actually do in-place upgrades)
