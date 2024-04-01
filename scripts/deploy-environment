@@ -162,9 +162,9 @@ is_valid_name "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
 [ -n "${RELEASE}" ] || RELEASE="arkcase"
 is_valid_name "${RELEASE}" || fail "Invalid release name [${RELEASE}]"
 
-[ -v BASE_DIR ] || BASE_DIR=""
-[ -n "${BASE_DIR}" ] || BASE_DIR="${PWD}"
-BASE_DIR="$(/usr/bin/readlink -f "${BASE_DIR}")" || fail "Failed to canonicalize the path for [${BASE_DIR}]"
+[ -v DEPLOYMENT_DIR ] || DEPLOYMENT_DIR=""
+[ -n "${DEPLOYMENT_DIR}" ] || DEPLOYMENT_DIR="${PWD}"
+DEPLOYMENT_DIR="$(/usr/bin/readlink -f "${DEPLOYMENT_DIR}")" || fail "Failed to canonicalize the path for [${DEPLOYMENT_DIR}]"
 
 #
 # The name of the helm chart to deploy
@@ -181,7 +181,8 @@ ENVIRONMENT_NAME="${1}"
 is_valid_name "${ENVIRONMENT_NAME}" || fail "Invalid environment name [${ENVIRONMENT_NAME}]"
 shift
 
-[ -f "deployment.yaml" ] || fail "This does not seem to be a deployment directory - no deployment.yaml was found!"
+say "Deploying from [${DEPLOYMENT_DIR}]..."
+[ -f "${DEPLOYMENT_DIR}/deployment.yaml" ] || fail "This does not seem to be a deployment directory - no deployment.yaml was found!"
 
 #
 # This information is useful because it will enable us to
@@ -216,7 +217,7 @@ VALUES=()
 [ -v COMMON_DIRS ] || COMMON_DIRS="common"
 readarray -t COMMON_DIRS < <(sanitize_common_dirs "${COMMON_DIRS}")
 for D in "${COMMON_DIRS[@]}" ; do
-	COMMON_DIR="${BASE_DIR}/${D}"
+	COMMON_DIR="${DEPLOYMENT_DIR}/${D}"
 	if [ -d "${COMMON_DIR}" ] ; then
 		while read V ; do
 			VALUES+=(-f "${V}")
@@ -234,14 +235,14 @@ done
 # are housed. The directory name must match the name
 # of the environment being deployed *EXACTLY*
 #
-ENV_DIR="${BASE_DIR}/envs/${ENVIRONMENT_NAME}"
+ENV_DIR="${DEPLOYMENT_DIR}/envs/${ENVIRONMENT_NAME}"
 
 if [ -d "${ENV_DIR}" ] ; then
 	while read V ; do
 		VALUES+=(-f "${V}")
 	done < <(/usr/bin/find "${ENV_DIR}" -type f -iname '*.yaml' | /usr/bin/sort -u)
 else
-	warn "No environment folder found at [${BASE_DIR}] for [${ENVIRONMENT_NAME}]"
+	warn "No environment folder found at [${DEPLOYMENT_DIR}] for [${ENVIRONMENT_NAME}]"
 fi
 
 ensure_namespace_exists "${NAMESPACE}" || fail "Failed to ensure that the required namespace ${NAMESPACE} exists"
