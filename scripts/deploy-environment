@@ -181,6 +181,8 @@ ENVIRONMENT_NAME="${1}"
 is_valid_name "${ENVIRONMENT_NAME}" || fail "Invalid environment name [${ENVIRONMENT_NAME}]"
 shift
 
+[ -f "deployment.yaml" ] || fail "This does not seem to be a deployment directory - no deployment.yaml was found!"
+
 #
 # This information is useful because it will enable us to
 # manage permissions automatically and programmatically,
