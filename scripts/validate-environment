@@ -78,13 +78,14 @@ KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
 
 if [ ${#} -eq 1 ] ; then
 	NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"
-	RELEASE="${1}"
+	[ -n "${NAMESPACE}" ] || NAMESPACE="default"
 else
 	NAMESPACE="${1}"
-	RELEASE="${2}"
+	shift
 fi
-
 is_valid_name "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
+
+RELEASE="${1}"
 is_valid_name "${RELEASE}" || fail "Invalid release name [${RELEASE}]"
 
 # Delete the old installation, since it's the safest bet to ensure

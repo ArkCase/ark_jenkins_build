@@ -1,0 +1,68 @@
+#!/bin/bash
+SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+
+set -euo pipefail
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+warn()
+{
+	say "⚠️ ${@}"
+}
+
+err()
+{
+	say "❌ ${@}" 1>&2
+}
+
+fail()
+{
+	err "${@}"
+	exit ${EXIT_CODE:-1}
+}
+
+is_valid_name()
+{
+	local STR="${1}"
+	[[ "${STR}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || return 1
+	return 0
+}
+
+ensure_namespace_exists()
+{
+	local NAMESPACE="${1}"
+	"${KUBECTL}" get namespace "${NAMESPACE}" &>/dev/null && return 0
+	"${KUBECTL}" create namespace "${NAMESPACE}" && return 0
+	return 1
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_SOURCE:-${0}} namespace cluster-name project-name" 1>&2
+	exit 1
+}
+
+[ ${#} -eq 3 ] || usage
+
+KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
+
+NAMESPACE="${1}"
+is_valid_name "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
+
+CLUSTER_NAME="${2}"
+is_valid_name "${CLUSTER_NAME}" || fail "Invalid cluster name [${CLUSTER_NAME}]"
+
+PROJECT_NAME="${3}"
+[ -n "${PROJECT_NAME}" ] || fail "Invalid project name [${PROJECT_NAME}]"
+
+ensure_namespace_exists "${NAMESPACE}" || fail "Failed to ensure that the required namespace ${NAMESPACE} exists"
+exec "${BASEDIR}/rancher-add-ns-to-project" "${NAMESPACE}" "${CLUSTER_NAME}" "${PROJECT_NAME}"
