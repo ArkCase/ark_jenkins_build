@@ -63,7 +63,7 @@ execute()
 	#
 	say "${@@Q}"
 	if is_deployment_disabled ; then
-		warn "Deployment disabled: skipping the command execution"
+		warn "Undeployment disabled: skipping the command execution"
 		return 0
 	fi
 
@@ -77,13 +77,8 @@ execute()
 is_namespace_exists()
 {
 	local NAMESPACE="${1}"
-	if is_deployment_disabled ; then
-		warn "Deployment disabled: assuming the namespace exists"
-		return 0
-	fi
-
-	"${KUBECTL}" get namespace "${NAMESPACE}" &>/dev/null && return 0
-	return 1
+	execute "${KUBECTL}" get namespace "${NAMESPACE}" &>/dev/null || return ${?}
+	return 0
 }
 
 usage()
