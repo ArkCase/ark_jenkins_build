@@ -242,11 +242,13 @@ DISABLE_UNDEPLOY="${DISABLE_DEPLOY}" "${BASEDIR}/undeploy-environment" "${NAMESP
 
 set -- "${HELM_ARGS[@]}"
 
-# Execute the new installation (we use upgrade b/c we want to future
-# proof this for when we actually do in-place upgrades)
+# Execute the new installation, using install --replace
+# because we intend to be preserving history from our
+# uninstalls
 RC=0
 execute \
-	"${HELM}" upgrade --install "${RELEASE}" "${CHART}" \
+	"${HELM}" install --replace \
+		"${RELEASE}" "${CHART}" \
 		--namespace "${NAMESPACE}" \
 		--wait \
 		--timeout "${DEPLOY_TIMEOUT}" \

@@ -114,6 +114,7 @@ fi
 execute \
 	"${HELM}" uninstall "${RELEASE}" \
 		--namespace "${NAMESPACE}" \
+		--keep-history \
 		--cascade foreground \
 		--wait \
 		--timeout "${UNDEPLOY_TIMEOUT}" || \
