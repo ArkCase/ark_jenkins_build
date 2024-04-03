@@ -7,10 +7,17 @@ ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
 [ -v CLEANUP_TIMEOUT ] || CLEANUP_TIMEOUT=""
 [ -n "${CLEANUP_TIMEOUT}" ] || CLEANUP_TIMEOUT="5m"
 
-[ -v FORCE_DELETE ] || FORCE_DELETE=""
-case "${FORCE_DELETE,,}" in
-	true | t | yes | y | on | en | enable | enabled | active ) FORCE_DELETE="true" ;;
-	* ) FORCE_DELETE="false" ;;
+[ -v DISABLE_CLEANUP ] || DISABLE_CLEANUP=""
+case "${DISABLE_CLEANUP,,}" in
+	true | t | yes | y ) DISABLE_CLEANUP="true" ;;
+	* ) DISABLE_CLEANUP="false" ;;
+esac
+export DISABLE_CLEANUP
+
+[ -v FORCE_CLEANUP ] || FORCE_CLEANUP=""
+case "${FORCE_CLEANUP,,}" in
+	true | t | yes | y | on | en | enable | enabled | active ) FORCE_CLEANUP="true" ;;
+	* ) FORCE_CLEANUP="false" ;;
 esac
 
 timestamp()
@@ -49,6 +56,24 @@ is_valid_name()
 	local NAME="${1}"
 	[[ "${NAME}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || return 1
 	return 0
+}
+
+execute()
+{
+	#
+	# Show the command about to be executed
+	#
+	say "${@@Q}"
+	if "${DISABLE_CLEANUP}" ; then
+		warn "Cleanup disabled: skipping the command execution"
+		return 0
+	fi
+
+	#
+	# Proceed with the execution
+	#
+	( exec "${@}" )
+	return ${?}
 }
 
 is_attachment_valid()
@@ -120,7 +145,7 @@ readarray -t PVCS < <("${JQ}" -r ".items[] | .metadata.name" <<< "${PVC_DATA}" |
 ATTACHMENT_DATA="$("${KUBECTL}" get "${ATTACHMENT_RESOURCE}" -o json)"
 
 DELETIONS=()
-"${FORCE_DELETE}" && warn "Forced deletion is activated! All attachments found will be deleted!"
+"${FORCE_CLEANUP}" && warn "Forced deletion is activated! All attachments found will be deleted!"
 for PVC in "${PVCS[@]}" ; do
 
 	if ! is_valid_name "${PVC}" ; then
@@ -145,7 +170,7 @@ for PVC in "${PVCS[@]}" ; do
 	for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 		ATTACHMENT_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
 
-		if ! "${FORCE_DELETE}" ; then
+		if ! "${FORCE_CLEANUP}" ; then
 			is_attachment_valid "${ATTACHMENT_INFO}" && continue
 		fi
 
@@ -169,8 +194,10 @@ for INFO in "${DELETIONS[@]}" ; do
 done
 
 RC=0
-"${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" --timeout="${CLEANUP_TIMEOUT}" "${ARGS[@]}" || RC=${?}
-if [ ${RC} -ne 0 ] ; then
+execute "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" --timeout="${CLEANUP_TIMEOUT}" "${ARGS[@]}" || RC=${?}
+if [ ${RC} -eq 0 ] ; then
+	ok "Deletion complete"
+else
 	# TODO: should we go back to using timeout to show the nicer timeout message?
 	case "${RC}" in
 		124 )	say "\t⌛ Deletion request timed out" ;;

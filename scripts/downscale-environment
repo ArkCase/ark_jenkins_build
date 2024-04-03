@@ -75,7 +75,7 @@ execute()
 	#
 	say "${@@Q}"
 	if "${DISABLE_DOWNSCALE}" ; then
-		warn "Deployment disabled: skipping the command execution"
+		warn "Downscaling disabled: skipping the command execution"
 		return 0
 	fi
 
