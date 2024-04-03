@@ -149,7 +149,9 @@ for PVC in "${PVCS[@]}" ; do
 			is_attachment_valid "${ATTACHMENT_INFO}" && continue
 		fi
 
-		DELETIONS+=("${PVC}/${PV}/${ATTACHMENT}")
+		NODE="$("${JQ}" -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
+
+		DELETIONS+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
 	done
 done
 
@@ -161,14 +163,15 @@ fi
 say "👉 Found ${#DELETIONS[@]} attachments that needed deleting..."
 ARGS=()
 for INFO in "${DELETIONS[@]}" ; do
-	IFS="/" read PVC PV ATTACHMENT <<< "${INFO}"
-	say "\t${PVC} -> ${PV} -> ${ATTACHMENT}"
+	IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
+	say "\t${PVC} -> ${PV} -> ${ATTACHMENT} -> ${NODE}"
 	ARGS+=("${ATTACHMENT}")
 done
 
 RC=0
 "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" --timeout="${CLEANUP_TIMEOUT}" "${ARGS[@]}" || RC=${?}
 if [ ${RC} -ne 0 ] ; then
+	# TODO: should we go back to using timeout to show the nicer timeout message?
 	case "${RC}" in
 		124 )	say "\t⌛ Deletion request timed out" ;;
 		* )		say "\t❌ Deletion failed (${RC})" ;;
