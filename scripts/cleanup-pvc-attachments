@@ -7,6 +7,9 @@ ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
 [ -v CLEANUP_TIMEOUT ] || CLEANUP_TIMEOUT=""
 [ -n "${CLEANUP_TIMEOUT}" ] || CLEANUP_TIMEOUT="1m"
 
+[ -v CLEANUP_KILL_DELAY ] || CLEANUP_KILL_DELAY=""
+[ -n "${CLEANUP_KILL_DELAY}" ] || CLEANUP_KILL_DELAY="5s"
+
 [ -v DISABLE_CLEANUP ] || DISABLE_CLEANUP=""
 case "${DISABLE_CLEANUP,,}" in
 	true | t | yes | y ) DISABLE_CLEANUP="true" ;;
@@ -208,6 +211,7 @@ TIMEOUT="$(type -P timeout)" || fail "Could not find 'timeout' in the path"
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
 CLEANUP_TIMEOUT=$(timestr_to_secs "${CLEANUP_TIMEOUT}") || fail "Invalid value for CLEANUP_TIMEOUT: [${CLEANUP_TIMEOUT}]"
+CLEANUP_KILL_DELAY=$(timestr_to_secs "${CLEANUP_KILL_DELAY}") || fail "Invalid value for CLEANUP_KILL_DELAY: [${CLEANUP_KILL_DELAY}]"
 
 if [ ${#} -eq 2 ] ; then
 	NAMESPACE="${1}"
@@ -280,7 +284,7 @@ if "${FORCE_CLEANUP}" && [ ${#GOOD[@]} -gt 0 ] ; then
 		say "👀 ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 
 		RC=0
-		execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
+		execute "${TIMEOUT}" -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
 		if [ ${RC} -eq 0 ] ; then
 			ok "Attachment deleted!"
 		else
@@ -301,7 +305,7 @@ else
 		say "👀 ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 
 		RC=0
-		execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
+		execute "${TIMEOUT}" -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
 		if [ ${RC} -eq 0 ] ; then
 			ok "Attachment deleted!"
 		else
