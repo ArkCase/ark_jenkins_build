@@ -264,13 +264,12 @@ for PVC in "${PVCS[@]}" ; do
 
 	for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 		ATTACHMENT_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
+		NODE="$("${JQ}" -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
 
 		if is_attachment_valid "${ATTACHMENT_INFO}" ; then
 			GOOD+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
 			continue
 		fi
-
-		NODE="$("${JQ}" -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
 
 		BROKEN+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
 	done
