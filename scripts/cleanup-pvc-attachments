@@ -181,7 +181,7 @@ is_attachment_valid()
 
 	# TODO: Validate that the node exists....
 	if ! "${KUBECTL}" get node "${NODE}" &>/dev/null ; then
-		say "\t❌ ${ATTACHMENT} -> ${NODE} is missing"
+		say "\t❌ ${ATTACHMENT} 🔗 ${NODE} is missing"
 		return 1
 	fi
 
@@ -277,7 +277,7 @@ if "${FORCE_CLEANUP}" && [ ${#GOOD[@]} -gt 0 ] ; then
 	say "👉 Found ${#GOOD[@]} good attachments that needed deleting..."
 	for INFO in "${GOOD[@]}" ; do
 		IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
-		say "\t${PVC} -> ${PV} -> ${ATTACHMENT} -> ${NODE}"
+		say "👀 ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 
 		RC=0
 		execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
@@ -292,13 +292,13 @@ if "${FORCE_CLEANUP}" && [ ${#GOOD[@]} -gt 0 ] ; then
 	done
 fi
 
-if [ ${#BROKEN[@]} -gt 0 ] ; then
+if [ ${#BROKEN[@]} -eq 0 ] ; then
 	ok "No broken attachments needed deletion!"
 else
 	say "👉 Found ${#BROKEN[@]} broken attachments that needed deleting..."
 	for INFO in "${BROKEN[@]}" ; do
 		IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
-		say "\t${PVC} -> ${PV} -> ${ATTACHMENT} -> ${NODE}"
+		say "👀 ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 
 		RC=0
 		execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
