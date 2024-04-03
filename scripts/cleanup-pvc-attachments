@@ -76,6 +76,95 @@ execute()
 	return ${?}
 }
 
+#
+# This function returns the number that serves as
+# a multiplier/divisor for a given time scale
+#
+get_time_mul()
+{
+	local TAG="${1^^}"
+
+	[[ "${TAG}" =~ ^[HDMS]$ ]] || return 1
+	local DURATION_S=1
+	local DURATION_M=$(( DURATION_S * 60 ))
+	local DURATION_H=$(( DURATION_M * 60 ))
+	local DURATION_D=$(( DURATION_H * 24 ))
+
+	local VAR="DURATION_${TAG}"
+	echo -n "${!VAR}"
+}
+
+#
+# This function converts numbers of seconds into
+# K8s timespecs, but leaves timespec strings alone
+#
+secs_to_timestr()
+{
+	local STR="${1}"
+	local NUM="(0|[1-9][0-9]*)"
+
+	[ -n "${STR}" ] || return 1
+
+	# If it's already a time string, return it
+	if [[ "${STR^^}" =~ ^(${NUM}D)?(${NUM}H)?(${NUM}M)?(${NUM}S)?$ ]] ; then
+		echo -n "${STR,,}"
+		return 0
+	fi
+
+	[[ "${STR}" =~ ^${NUM}$ ]] || return 1
+
+	local RET=""
+	local SIZE=0
+	local MUL=0
+	local SECS=${STR}
+	for C in D H M S ; do
+		MUL=$(get_time_mul "${C}")
+		(( SIZE = ( SECS / MUL ) ))
+		[ ${SIZE} -gt 0 ] && RET+="${SIZE}${C}"
+		(( SECS -= ( SIZE * MUL ) ))
+	done
+
+	echo -n ${RET,,}
+	return 0
+}
+
+#
+# This function converts K8s timespecs into
+# numbers of seconds, but leaves numbers alone
+#
+timestr_to_secs()
+{
+	local STR="${1}"
+	local NUM="(0|[1-9][0-9]*)"
+
+	# If it's a straight-up number,
+	# seconds already, so just return it
+	if [[ "${STR}" =~ ^${NUM}$ ]] ; then
+		echo -e "${STR}"
+		return 0
+	fi
+
+	# It could be a time string, so parse it out
+	[ -n "${STR}" ] || return 1
+	[[ "${STR^^}" =~ ^(${NUM}D)?(${NUM}H)?(${NUM}M)?(${NUM}S)?$ ]] || return 1
+
+	local PARTS=( "${BASH_REMATCH[@]:1}" )
+	[ ${#PARTS[@]} -ge 1 ] || return 1
+
+	local SIZE=0
+	local MUL=0
+	local SECS=0
+	for (( i = 0 ; i < ${#PARTS[@]} ; i++ )) ; do
+		[[ "${PARTS[i]}" =~ ^${NUM}([DHMS])$ ]] || continue
+		SIZE=${BASH_REMATCH[1]}
+		MUL=$(get_time_mul "${BASH_REMATCH[2]}")
+		(( SECS += SIZE * MUL ))
+	done
+
+	echo -n ${SECS}
+	return 0
+}
+
 is_attachment_valid()
 {
 	local ATTACHMENT_INFO="${1}"
@@ -118,6 +207,8 @@ TIMEOUT="$(type -P timeout)" || fail "Could not find 'timeout' in the path"
 
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
+CLEANUP_TIMEOUT=$(timestr_to_secs "${CLEANUP_TIMEOUT}") || fail "Invalid value for CLEANUP_TIMEOUT: [${CLEANUP_TIMEOUT}]"
+
 if [ ${#} -eq 2 ] ; then
 	NAMESPACE="${1}"
 	shift
@@ -144,8 +235,8 @@ readarray -t PVCS < <("${JQ}" -r ".items[] | .metadata.name" <<< "${PVC_DATA}" |
 
 ATTACHMENT_DATA="$("${KUBECTL}" get "${ATTACHMENT_RESOURCE}" -o json)"
 
-DELETIONS=()
-"${FORCE_CLEANUP}" && warn "Forced deletion is activated! All attachments found will be deleted!"
+BROKEN=()
+GOOD=()
 for PVC in "${PVCS[@]}" ; do
 
 	if ! is_valid_name "${PVC}" ; then
@@ -170,38 +261,60 @@ for PVC in "${PVCS[@]}" ; do
 	for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 		ATTACHMENT_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
 
-		if ! "${FORCE_CLEANUP}" ; then
-			is_attachment_valid "${ATTACHMENT_INFO}" && continue
+		if is_attachment_valid "${ATTACHMENT_INFO}" ; then
+			GOOD+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
+			continue
 		fi
 
 		NODE="$("${JQ}" -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
 
-		DELETIONS+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
+		BROKEN+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
 	done
 done
 
-if [ ${#DELETIONS[@]} -eq 0 ] ; then
-	ok "No attachments needed deletion!"
-	exit 0
+if "${FORCE_CLEANUP}" && [ ${#GOOD[@]} -gt 0 ] ; then
+	warn "Forced deletion is activated! All attachments found will be deleted!"
+	say "👉 Found ${#GOOD[@]} good attachments that needed deleting..."
+	ARGS=()
+	for INFO in "${GOOD[@]}" ; do
+		IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
+		say "\t${PVC} -> ${PV} -> ${ATTACHMENT} -> ${NODE}"
+		ARGS+=("${ATTACHMENT}")
+	done
+
+	RC=0
+	execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ARGS[@]}" || RC=${?}
+	if [ ${RC} -eq 0 ] ; then
+		ok "Good attachment deletion complete"
+	else
+		case "${RC}" in
+			124 )	say "\t⌛ Good attachment deletion request timed out" ;;
+			* )		say "\t❌ Good attachment deletion failed (${RC})" ;;
+		esac
+	fi
 fi
 
-say "👉 Found ${#DELETIONS[@]} attachments that needed deleting..."
-ARGS=()
-for INFO in "${DELETIONS[@]}" ; do
-	IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
-	say "\t${PVC} -> ${PV} -> ${ATTACHMENT} -> ${NODE}"
-	ARGS+=("${ATTACHMENT}")
-done
-
-RC=0
-execute "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" --timeout="${CLEANUP_TIMEOUT}" "${ARGS[@]}" || RC=${?}
-if [ ${RC} -eq 0 ] ; then
-	ok "Deletion complete"
+if [ ${#BROKEN[@]} -eq 0 ] ; then
+	ok "No broken attachments needed deletion!"
 else
-	# TODO: should we go back to using timeout to show the nicer timeout message?
-	case "${RC}" in
-		124 )	say "\t⌛ Deletion request timed out" ;;
-		* )		say "\t❌ Deletion failed (${RC})" ;;
-	esac
+	say "👉 Found ${#BROKEN[@]} broken attachments that needed deleting..."
+	ARGS=()
+	for INFO in "${BROKEN[@]}" ; do
+		IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
+		say "\t${PVC} -> ${PV} -> ${ATTACHMENT} -> ${NODE}"
+		ARGS+=("${ATTACHMENT}")
+	done
+
+	RC=0
+	execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ARGS[@]}" || RC=${?}
+	if [ ${RC} -eq 0 ] ; then
+		ok "Broken attachment deletion complete"
+	else
+		case "${RC}" in
+			124 )	say "\t⌛ Broken attachment deletion request timed out" ;;
+			* )		say "\t❌ Broken attachment deletion failed (${RC})" ;;
+		esac
+	fi
 fi
-exit ${RC}
+
+exit 0
