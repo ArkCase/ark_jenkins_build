@@ -5,7 +5,7 @@ set -euo pipefail
 ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
 
 [ -v CLEANUP_TIMEOUT ] || CLEANUP_TIMEOUT=""
-[ -n "${CLEANUP_TIMEOUT}" ] || CLEANUP_TIMEOUT="5m"
+[ -n "${CLEANUP_TIMEOUT}" ] || CLEANUP_TIMEOUT="1m"
 
 [ -v DISABLE_CLEANUP ] || DISABLE_CLEANUP=""
 case "${DISABLE_CLEANUP,,}" in
@@ -275,46 +275,42 @@ done
 if "${FORCE_CLEANUP}" && [ ${#GOOD[@]} -gt 0 ] ; then
 	warn "Forced deletion is activated! All attachments found will be deleted!"
 	say "👉 Found ${#GOOD[@]} good attachments that needed deleting..."
-	ARGS=()
 	for INFO in "${GOOD[@]}" ; do
 		IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
 		say "\t${PVC} -> ${PV} -> ${ATTACHMENT} -> ${NODE}"
-		ARGS+=("${ATTACHMENT}")
-	done
 
-	RC=0
-	execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ARGS[@]}" || RC=${?}
-	if [ ${RC} -eq 0 ] ; then
-		ok "Good attachment deletion complete"
-	else
-		case "${RC}" in
-			124 )	say "\t⌛ Good attachment deletion request timed out" ;;
-			* )		say "\t❌ Good attachment deletion failed (${RC})" ;;
-		esac
-	fi
+		RC=0
+		execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
+		if [ ${RC} -eq 0 ] ; then
+			ok "Attachment deleted!"
+		else
+			case "${RC}" in
+				124 )	say "\t⌛ Deletion request timed out" ;;
+				* )		say "\t❌ Deletion failed (${RC})" ;;
+			esac
+		fi
+	done
 fi
 
-if [ ${#BROKEN[@]} -eq 0 ] ; then
+if [ ${#BROKEN[@]} -gt 0 ] ; then
 	ok "No broken attachments needed deletion!"
 else
 	say "👉 Found ${#BROKEN[@]} broken attachments that needed deleting..."
-	ARGS=()
 	for INFO in "${BROKEN[@]}" ; do
 		IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
 		say "\t${PVC} -> ${PV} -> ${ATTACHMENT} -> ${NODE}"
-		ARGS+=("${ATTACHMENT}")
-	done
 
-	RC=0
-	execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ARGS[@]}" || RC=${?}
-	if [ ${RC} -eq 0 ] ; then
-		ok "Broken attachment deletion complete"
-	else
-		case "${RC}" in
-			124 )	say "\t⌛ Broken attachment deletion request timed out" ;;
-			* )		say "\t❌ Broken attachment deletion failed (${RC})" ;;
-		esac
-	fi
+		RC=0
+		execute "${TIMEOUT}" -k 30 ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
+		if [ ${RC} -eq 0 ] ; then
+			ok "Attachment deleted!"
+		else
+			case "${RC}" in
+				124 )	say "\t⌛ Deletion request timed out" ;;
+				* )		say "\t❌ Deletion failed (${RC})" ;;
+			esac
+		fi
+	done
 fi
 
 exit 0
