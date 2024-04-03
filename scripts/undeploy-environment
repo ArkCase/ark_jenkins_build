@@ -39,8 +39,11 @@ is_deployed()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	"${HELM}" get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
-	return ${?}
+
+	local STATUS="$("${HELM}" status "${RELEASE}" --namespace "${NAMESPACE}" -o json)" || return ${?}
+	local RESULT="$("${JQ}" -r '.info.status' <<< "${STATUS}")"
+	[ "${RESULT}" == "deployed" ] || return 1
+	return 0
 }
 
 is_valid_name()
@@ -84,6 +87,7 @@ usage()
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
 HELM="$(type -P helm)" || fail "Failed to find helm in the path"
+JQ="$(type -P jq)" || fail "Failed to find jq in the path"
 KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
 
 if [ ${#} -eq 1 ] ; then
