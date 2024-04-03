@@ -309,6 +309,8 @@ fi
 if "${CLEANUP_FORCE}" ; then
 	warn "Forced deletion is activated! Will use --force when deleting resources"
 	CLEANUP_FORCE=(--force)
+else
+	CLEANUP_FORCE=()
 fi
 say "👉 Found ${#TARGETS[@]} attachments that needed deleting..."
 for INFO in "${TARGETS[@]}" ; do
