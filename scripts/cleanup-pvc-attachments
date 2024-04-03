@@ -166,8 +166,8 @@ for INFO in "${DELETIONS[@]}" ; do
 	ARGS+=("${ATTACHMENT}")
 done
 
-"${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" --timeout="${CLEANUP_TIMEOUT}" "${ARGS[@]}"
-RC=${?}
+RC=0
+"${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" --timeout="${CLEANUP_TIMEOUT}" "${ARGS[@]}" || RC=${?}
 if [ ${RC} -ne 0 ] ; then
 	case "${RC}" in
 		124 )	say "\t⌛ Deletion request timed out" ;;
