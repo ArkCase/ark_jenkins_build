@@ -17,10 +17,16 @@ case "${DISABLE_CLEANUP,,}" in
 esac
 export DISABLE_CLEANUP
 
-[ -v FORCE_CLEANUP ] || FORCE_CLEANUP=""
-case "${FORCE_CLEANUP,,}" in
-	true | t | yes | y | on | en | enable | enabled | active ) FORCE_CLEANUP="true" ;;
-	* ) FORCE_CLEANUP="false" ;;
+[ -v CLEANUP_ALL ] || CLEANUP_ALL=""
+case "${CLEANUP_ALL,,}" in
+	true | t | yes | y | on | en | enable | enabled | active ) CLEANUP_ALL="true" ;;
+	* ) CLEANUP_ALL="false" ;;
+esac
+
+[ -v CLEANUP_FORCE ] || CLEANUP_FORCE=""
+case "${CLEANUP_FORCE,,}" in
+	true | t | yes | y | on | en | enable | enabled | active ) CLEANUP_FORCE="true" ;;
+	* ) CLEANUP_FORCE="false" ;;
 esac
 
 timestamp()
@@ -170,7 +176,11 @@ timestr_to_secs()
 
 is_attachment_valid()
 {
-	local ATTACHMENT_INFO="${1}"
+	local POD_INFO="${1}"
+	local PVC_INFO="${2}"
+	local PV_INFO="${3}"
+	local ATTACHMENT_INFO="${4}"
+	local NODE_INFO="${5}"
 
 	local ATTACHED=""
 	local NODE=""
@@ -182,14 +192,21 @@ is_attachment_valid()
 		return 1
 	fi
 
-	# TODO: Validate that the node exists....
-	if ! "${KUBECTL}" get node "${NODE}" &>/dev/null ; then
+	if [ -z "${NODE_INFO}" ] ; then
 		say "\t❌ ${ATTACHMENT} 🔗 ${NODE} is missing"
 		return 1
 	fi
 
-	# Node is OK ... do we want to try to hunt down the pod(s) that it's attached to?
-	# If those pods are down, perhaps this attachment can be deleted?
+	if [ -z "${POD_INFO}" ] ; then
+		local PVC="$("${JQ}" -r '.metadata.name' <<< "${PVC_INFO}")"
+		say "\t❌ no pod is referencing the PVC ${PVC}"
+		return 1
+	fi
+
+	# TODO: Check to see if the node is up or down
+
+	# Node is OK ... do we want to try to hunt down the pod that are using
+	# its PVC? If those pods are down, perhaps this attachment can be deleted?
 	say "\t✅ ${ATTACHMENT} 🔗 ${NODE}"
 	return 0
 }
@@ -230,6 +247,16 @@ is_valid_name "${RELEASE}" || fail "The RELEASE value [${RELEASE}] is not valid"
 # Get all the PVCs in the currently default namespace
 say "👉 Fetching all the PVC data on the namespace ${NAMESPACE} for release ${RELEASE}..."
 PVC_DATA="$("${KUBECTL}" get --namespace "${NAMESPACE}" pvc --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
+say "👉 Fetching all the PV data on cluster..."
+PV_DATA="$("${KUBECTL}" get pv -o json)"
+
+if ! "${CLEANUP_ALL}" ; then
+	say "👉 Fetching all the Pod data on the namespace ${NAMESPACE} for release ${RELEASE}..."
+	POD_DATA="$("${KUBECTL}" get --namespace "${NAMESPACE}" pod --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
+	say "👉 Fetching all the Node data on the cluster..."
+	NODE_DATA="$("${KUBECTL}" get node -o json)"
+fi
+
 PVC_COUNT="$("${JQ}" -r ".items | length" <<< "${PVC_DATA}")"
 
 ok "Found ${PVC_COUNT} PVCs"
@@ -237,21 +264,19 @@ ok "Found ${PVC_COUNT} PVCs"
 
 readarray -t PVCS < <("${JQ}" -r ".items[] | .metadata.name" <<< "${PVC_DATA}" | "${SORT}" -u)
 
+say "👉 Fetching all the Volume Attachment data on the cluster..."
 ATTACHMENT_DATA="$("${KUBECTL}" get "${ATTACHMENT_RESOURCE}" -o json)"
 
-BROKEN=()
-GOOD=()
+"${CLEANUP_ALL}" && warn "CLEANUP_ALL is set to TRUE - all attachments found will be deleted!"
+TARGETS=()
 for PVC in "${PVCS[@]}" ; do
-
-	if ! is_valid_name "${PVC}" ; then
-		err "PVC name [${PVC}] is not valid"
-		continue
-	fi
-
 	say "Scanning the for attachments to PVC ${PVC}..."
 
-	PV="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PVC}\") | .spec.volumeName" <<< "${PVC_DATA}")"
-	if [ -z "${PV}" ] || ! "${KUBECTL}" get pv "${PV}" &>/dev/null ; then
+	PVC_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
+
+	PV="$("${JQ}" -r ".spec.volumeName" <<< "${PVC_INFO}")"
+	PV_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
+	if [ -z "${PV}" ] || [ -z "${PV_INFO}" ] ; then
 		err "No volume ${PV} found ... referenced by PVC ${PVC}"
 		continue
 	fi
@@ -266,54 +291,39 @@ for PVC in "${PVCS[@]}" ; do
 		ATTACHMENT_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
 		NODE="$("${JQ}" -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
 
-		if is_attachment_valid "${ATTACHMENT_INFO}" ; then
-			GOOD+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
-			continue
+		if ! "${CLEANUP_ALL}" ; then
+			NODE_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
+			POD_INFO="$("${JQ}" -r ".items[] | select(.spec.volumes[].persistentVolumeClaim.claimName == \"${PVC}\")" <<< "${POD_DATA}")"
+			is_attachment_valid "${POD_INFO}" "${PVC_INFO}" "${PV_INFO}" "${ATTACHMENT_INFO}" "${NODE_INFO}" && continue
 		fi
 
-		BROKEN+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
+		TARGETS+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
 	done
 done
 
-if "${FORCE_CLEANUP}" && [ ${#GOOD[@]} -gt 0 ] ; then
-	warn "Forced deletion is activated! All attachments found will be deleted!"
-	say "👉 Found ${#GOOD[@]} good attachments that needed deleting..."
-	for INFO in "${GOOD[@]}" ; do
-		IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
-		say "👀 ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
-
-		RC=0
-		execute "${TIMEOUT}" -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
-		if [ ${RC} -eq 0 ] ; then
-			ok "Attachment deleted!"
-		else
-			case "${RC}" in
-				124 )	say "\t⌛ Deletion request timed out" ;;
-				* )		say "\t❌ Deletion failed (${RC})" ;;
-			esac
-		fi
-	done
+if [ ${#TARGETS[@]} -eq 0 ] ; then
+	ok "No attachments needed deletion!"
+	exit 0
 fi
 
-if [ ${#BROKEN[@]} -eq 0 ] ; then
-	ok "No broken attachments needed deletion!"
-else
-	say "👉 Found ${#BROKEN[@]} broken attachments that needed deleting..."
-	for INFO in "${BROKEN[@]}" ; do
-		IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
-		say "👀 ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
-
-		RC=0
-		execute "${TIMEOUT}" -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
-		if [ ${RC} -eq 0 ] ; then
-			ok "Attachment deleted!"
-		else
-			case "${RC}" in
-				124 )	say "\t⌛ Deletion request timed out" ;;
-				* )		say "\t❌ Deletion failed (${RC})" ;;
-			esac
-		fi
-	done
+if "${CLEANUP_FORCE}" ; then
+	warn "Forced deletion is activated! Will use --force when deleting resources"
+	CLEANUP_FORCE=(--force)
 fi
+say "👉 Found ${#TARGETS[@]} attachments that needed deleting..."
+for INFO in "${TARGETS[@]}" ; do
+	IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
+	say "👀 ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 
+	RC=0
+	execute "${TIMEOUT}" -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} "${KUBECTL}" delete "${CLEANUP_FORCE[@]}" "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
+	if [ ${RC} -eq 0 ] ; then
+		ok "Attachment deleted!"
+	else
+		case "${RC}" in
+			124 )	say "\t⌛ Deletion request timed out" ;;
+			* )		say "\t❌ Deletion failed (${RC})" ;;
+		esac
+	fi
+done
 exit 0
