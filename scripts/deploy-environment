@@ -172,22 +172,6 @@ say "Deploying from [${DEPLOYMENT_DIR}]..."
 [ -f "${DEPLOYMENT_DIR}/deployment.yaml" ] || fail "This does not seem to be a deployment directory - no deployment.yaml was found!"
 
 #
-# This information is useful because it will enable us to
-# manage permissions automatically and programmatically,
-# instead of doing something else
-#
-[ -v RANCHER_PROJECT_INFO ] || RANCHER_PROJECT_INFO=""
-if [[ "${RANCHER_PROJECT_INFO}" =~ ^(.+)/(.+)$ ]] ; then
-	# Add the annotations to the existing namespace
-	CLUSTER_NAME="${BASH_REMATCH[1]}"
-	PROJECT_NAME="${BASH_REMATCH[2]}"
-else
-	warn "No valid rancher project info, so will not take it into account (${RANCHER_PROJECT_INFO:-<empty string>})"
-	CLUSTER_NAME=""
-	PROJECT_NAME=""
-fi
-
-#
 # This will hold the list of Helm "-f" parameters to include
 # every single values file that needs to be taken into account
 # for this deployment
