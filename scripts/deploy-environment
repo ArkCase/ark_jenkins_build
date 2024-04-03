@@ -40,14 +40,6 @@ fail()
 	exit ${EXIT_CODE:-1}
 }
 
-is_deployed()
-{
-	local NAMESPACE="${1}"
-	local RELEASE="${2}"
-	"${HELM}" get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
-	return ${?}
-}
-
 is_valid_name()
 {
 	local STR="${1}"

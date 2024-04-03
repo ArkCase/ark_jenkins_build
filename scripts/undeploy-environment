@@ -35,15 +35,21 @@ fail()
 	exit ${EXIT_CODE:-1}
 }
 
-is_deployed()
+should_uninstall()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
 
 	local STATUS="$("${HELM}" status "${RELEASE}" --namespace "${NAMESPACE}" -o json)" || return ${?}
+
+	# Can be one of: unknown, deployed, uninstalled,
+	# superseded, failed, uninstalling, pending-install,
+	# pending-upgrade or pending-rollback
 	local RESULT="$("${JQ}" -r '.info.status' <<< "${STATUS}")"
-	[ "${RESULT}" == "deployed" ] || return 1
-	return 0
+	case "${RESULT,,}" in
+		uninstalled ) return 1 ;;
+		* ) return 0 ;;
+	esac
 }
 
 is_valid_name()
@@ -108,7 +114,7 @@ if ! is_namespace_exists "${NAMESPACE}" ; then
 	exit 0
 fi
 
-if ! is_deployed "${NAMESPACE}" "${RELEASE}" ; then
+if ! should_uninstall "${NAMESPACE}" "${RELEASE}" ; then
 	say "The Helm deployment ${RELEASE} was not found in the ${NAMESPACE} namespace"
 	exit 0
 fi
