@@ -174,3 +174,4 @@ if [ ${RC} -ne 0 ] ; then
 		* )		say "\t❌ Deletion failed (${RC})" ;;
 	esac
 fi
+exit ${RC}
