@@ -40,7 +40,10 @@ should_uninstall()
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
 
-	local STATUS="$("${HELM}" status "${RELEASE}" --namespace "${NAMESPACE}" -o json)" || return 0
+	local STATUS=""
+
+	# Have to split this or our logic won't work
+	STATUS="$("${HELM}" status "${RELEASE}" --namespace "${NAMESPACE}" -o json)" || return ${?}
 
 	# Can be one of: unknown, deployed, uninstalled,
 	# superseded, failed, uninstalling, pending-install,
