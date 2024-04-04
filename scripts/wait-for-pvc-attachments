@@ -5,10 +5,10 @@ set -euo pipefail
 ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
 
 [ -v CLEANUP_TIMEOUT ] || CLEANUP_TIMEOUT=""
-[ -n "${CLEANUP_TIMEOUT}" ] || CLEANUP_TIMEOUT="1m"
+[ -n "${CLEANUP_TIMEOUT}" ] || CLEANUP_TIMEOUT="20m"
 
-[ -v CLEANUP_KILL_DELAY ] || CLEANUP_KILL_DELAY=""
-[ -n "${CLEANUP_KILL_DELAY}" ] || CLEANUP_KILL_DELAY="5s"
+[ -v CLEANUP_RETRY_WAIT ] || CLEANUP_RETRY_WAIT=""
+[ -n "${CLEANUP_RETRY_WAIT}" ] || CLEANUP_RETRY_WAIT="15s"
 
 [ -v DISABLE_CLEANUP ] || DISABLE_CLEANUP=""
 case "${DISABLE_CLEANUP,,}" in
@@ -16,18 +16,6 @@ case "${DISABLE_CLEANUP,,}" in
 	* ) DISABLE_CLEANUP="false" ;;
 esac
 export DISABLE_CLEANUP
-
-[ -v CLEANUP_ALL ] || CLEANUP_ALL=""
-case "${CLEANUP_ALL,,}" in
-	true | t | yes | y | on | en | enable | enabled | active ) CLEANUP_ALL="true" ;;
-	* ) CLEANUP_ALL="false" ;;
-esac
-
-[ -v CLEANUP_FORCE ] || CLEANUP_FORCE=""
-case "${CLEANUP_FORCE,,}" in
-	true | t | yes | y | on | en | enable | enabled | active ) CLEANUP_FORCE="true" ;;
-	* ) CLEANUP_FORCE="false" ;;
-esac
 
 timestamp()
 {
@@ -177,11 +165,10 @@ timestr_to_secs()
 is_attachment_valid()
 {
 	local ATTACHMENT="${1}"
-	local POD_INFO="${2}"
-	local PVC_INFO="${3}"
-	local PV_INFO="${4}"
-	local ATTACHMENT_INFO="${5}"
-	local NODE_INFO="${6}"
+	local PVC_INFO="${2}"
+	local PV_INFO="${3}"
+	local ATTACHMENT_INFO="${4}"
+	local NODE_INFO="${5}"
 
 	local ATTACHED=""
 	local NODE=""
@@ -198,18 +185,28 @@ is_attachment_valid()
 		return 1
 	fi
 
-	if [ -z "${POD_INFO}" ] ; then
-		local PVC="$("${JQ}" -r '.metadata.name' <<< "${PVC_INFO}")"
-		say "\t❌ no pod is referencing the PVC ${PVC}"
-		return 1
-	fi
-
-	# TODO: Check to see if the node is up or down
-
 	# Node is OK ... do we want to try to hunt down the pod that are using
 	# its PVC? If those pods are down, perhaps this attachment can be deleted?
 	say "\t✅ ${ATTACHMENT} 🔗 ${NODE}"
 	return 0
+}
+
+dump_remaining()
+{
+	[ ${#} -eq 0 ] && return 0
+	warn "The following ${#} attachments did not clear and may need manual intervention"
+	for REC in "${@}" ; do
+		IFS="/" read PVC PV ATTACHMENT NODE OK <<< "${REC}"
+		"${OK}" && OK="✅" || OK="❌"
+		say "\t${OK} ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
+	done
+	return 0
+}
+
+fail_for_timeout()
+{
+	say "⌛ Timed out waiting for the attachments to clear"
+	dump_remaining "${@}"
 }
 
 usage()
@@ -219,9 +216,7 @@ usage()
 }
 
 KUBECTL="$(type -P kubectl)" || fail "Could not find 'kubectl' in the path"
-EGREP="$(type -P egrep)" || fail "Could not find 'egrep' in the path"
 JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
-AWK="$(type -P awk)" || fail "Could not find 'awk' in the path"
 SED="$(type -P sed)" || fail "Could not find 'sed' in the path"
 SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
 TIMEOUT="$(type -P timeout)" || fail "Could not find 'timeout' in the path"
@@ -229,7 +224,7 @@ TIMEOUT="$(type -P timeout)" || fail "Could not find 'timeout' in the path"
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
 CLEANUP_TIMEOUT=$(timestr_to_secs "${CLEANUP_TIMEOUT}") || fail "Invalid value for CLEANUP_TIMEOUT: [${CLEANUP_TIMEOUT}]"
-CLEANUP_KILL_DELAY=$(timestr_to_secs "${CLEANUP_KILL_DELAY}") || fail "Invalid value for CLEANUP_KILL_DELAY: [${CLEANUP_KILL_DELAY}]"
+CLEANUP_RETRY_WAIT=$(timestr_to_secs "${CLEANUP_RETRY_WAIT}") || fail "Invalid value for CLEANUP_RETRY_WAIT: [${CLEANUP_RETRY_WAIT}]"
 
 if [ ${#} -eq 2 ] ; then
 	NAMESPACE="${1}"
@@ -245,88 +240,93 @@ is_valid_name "${RELEASE}" || fail "The RELEASE value [${RELEASE}] is not valid"
 
 "${KUBECTL}" get namespace "${NAMESPACE}" &>/dev/null || fail "The namespace [${NAMESPACE}] does not exist"
 
-# Get all the PVCs in the currently default namespace
-say "👉 Fetching all the PVC data on the namespace ${NAMESPACE} for release ${RELEASE}..."
-PVC_DATA="$("${KUBECTL}" get --namespace "${NAMESPACE}" pvc --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
-say "👉 Fetching all the PV data on cluster..."
-PV_DATA="$("${KUBECTL}" get pv -o json)"
+CLEANUP_TIMEOUT_STR="$(secs_to_timestr "${CLEANUP_TIMEOUT}")"
+CLEANUP_RETRY_WAIT_STR="$(secs_to_timestr "${CLEANUP_RETRY_WAIT}")"
+say "⌛ Waiting for the volume attachments to be released (up to ${CLEANUP_TIMEOUT_STR} total)..."
+PREVIOUS_RUN=()
+START="$(/usr/bin/date +%s)"
+while true ; do
 
-if ! "${CLEANUP_ALL}" ; then
-	say "👉 Fetching all the Pod data on the namespace ${NAMESPACE} for release ${RELEASE}..."
-	POD_DATA="$("${KUBECTL}" get --namespace "${NAMESPACE}" pod --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
-	say "👉 Fetching all the Node data on the cluster..."
+	# Get all the PVCs in the currently default namespace
+	say "👀 Fetching all the PVC data on the namespace ${NAMESPACE} for release ${RELEASE}..."
+	PVC_DATA="$("${KUBECTL}" get --namespace "${NAMESPACE}" pvc --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
+	say "👀 Fetching all the PV data on cluster..."
+	PV_DATA="$("${KUBECTL}" get pv -o json)"
+	say "👀 Fetching all the Node data on the cluster..."
 	NODE_DATA="$("${KUBECTL}" get node -o json)"
-fi
 
-PVC_COUNT="$("${JQ}" -r ".items | length" <<< "${PVC_DATA}")"
+	PVC_COUNT="$("${JQ}" -r ".items | length" <<< "${PVC_DATA}")"
 
-ok "Found ${PVC_COUNT} PVCs"
-[ ${PVC_COUNT} -gt 0 ] || exit 0
+	ok "Found ${PVC_COUNT} PVCs"
+	[ ${PVC_COUNT} -gt 0 ] || exit 0
 
-readarray -t PVCS < <("${JQ}" -r ".items[] | .metadata.name" <<< "${PVC_DATA}" | "${SORT}" -u)
+	readarray -t PVCS < <("${JQ}" -r ".items[] | .metadata.name" <<< "${PVC_DATA}" | "${SORT}" -u)
 
-say "👉 Fetching all the Volume Attachment data on the cluster..."
-ATTACHMENT_DATA="$("${KUBECTL}" get "${ATTACHMENT_RESOURCE}" -o json)"
+	say "👀 Fetching all the Volume Attachment data on the cluster..."
+	ATTACHMENT_DATA="$("${KUBECTL}" get "${ATTACHMENT_RESOURCE}" -o json)"
 
-"${CLEANUP_ALL}" && warn "CLEANUP_ALL is set to TRUE - all attachments found will be deleted!"
-TARGETS=()
-for PVC in "${PVCS[@]}" ; do
-	say "Scanning the for attachments to PVC ${PVC}..."
+	(( BROKEN=0 )) || true
+	CURRENT_RUN=()
+	for PVC in "${PVCS[@]}" ; do
 
-	PVC_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
+		PVC_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
 
-	PV="$("${JQ}" -r ".spec.volumeName" <<< "${PVC_INFO}")"
-	PV_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
-	if [ -z "${PV}" ] || [ -z "${PV_INFO}" ] ; then
-		err "No volume ${PV} found ... referenced by PVC ${PVC}"
-		continue
-	fi
-
-	# For each PVC, identify the pod(s) it's attached to
-	readarray -t ATTACHMENTS < <("${JQ}" -r ".items[] | select(.spec.source.persistentVolumeName == \"${PV}\") | .metadata.name" <<< "${ATTACHMENT_DATA}")
-
-	say "${PVC} - ${#ATTACHMENTS[@]} attachments found"
-	[ "${#ATTACHMENTS[@]}" -gt 0 ] || continue
-
-	for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
-		ATTACHMENT_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
-		NODE="$("${JQ}" -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
-
-		if ! "${CLEANUP_ALL}" ; then
-			NODE_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
-			POD_INFO="$("${JQ}" -r ".items[] | select(.spec.volumes[].persistentVolumeClaim.claimName == \"${PVC}\")" <<< "${POD_DATA}")"
-			is_attachment_valid "${ATTACHMENT}" "${POD_INFO}" "${PVC_INFO}" "${PV_INFO}" "${ATTACHMENT_INFO}" "${NODE_INFO}" && continue
+		PV="$("${JQ}" -r ".spec.volumeName" <<< "${PVC_INFO}")"
+		PV_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
+		if [ -z "${PV}" ] || [ -z "${PV_INFO}" ] ; then
+			err "No volume ${PV} found ... referenced by PVC ${PVC}"
+			continue
 		fi
 
-		TARGETS+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
+		# For each PVC, identify the pod(s) it's attached to
+		readarray -t ATTACHMENTS < <("${JQ}" -r ".items[] | select(.spec.source.persistentVolumeName == \"${PV}\") | .metadata.name" <<< "${ATTACHMENT_DATA}")
+
+		[ "${#ATTACHMENTS[@]}" -gt 0 ] || continue
+
+		say "👀 Found ${#ATTACHMENTS[@]} attachments for ${PVC}"
+		for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
+			ATTACHMENT_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
+			NODE="$("${JQ}" -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
+
+			NODE_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
+
+			ATTACHMENT_REF="${PVC}/${PV}/${ATTACHMENT}/${NODE}"
+			OK="true"
+			if ! is_attachment_valid "${ATTACHMENT}" "${PVC_INFO}" "${PV_INFO}" "${ATTACHMENT_INFO}" "${NODE_INFO}" ; then
+				OK="false"
+				(( ++BROKEN ))
+			fi
+			CURRENT_RUN+=("${ATTACHMENT_REF}/${OK}")
+		done
 	done
-done
 
-if [ ${#TARGETS[@]} -eq 0 ] ; then
-	ok "No attachments needed deletion!"
-	exit 0
-fi
-
-if "${CLEANUP_FORCE}" ; then
-	warn "Forced deletion is activated! Will use --force when deleting resources"
-	CLEANUP_FORCE=(--force)
-else
-	CLEANUP_FORCE=()
-fi
-say "👉 Found ${#TARGETS[@]} attachments that needed deleting..."
-for INFO in "${TARGETS[@]}" ; do
-	IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
-	say "👀 ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
-
-	RC=0
-	execute "${TIMEOUT}" -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} "${KUBECTL}" delete --ignore-not-found=true --grace-period=1 --wait=true "${CLEANUP_FORCE[@]}" "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
-	if [ ${RC} -eq 0 ] ; then
-		ok "Attachment deleted!"
-	else
-		case "${RC}" in
-			124 )	say "\t⌛ Deletion request timed out" ;;
-			* )		say "\t❌ Deletion failed (${RC})" ;;
-		esac
+	if [ ${#CURRENT_RUN[@]} -eq ${BROKEN} ] ; then
+		ok "All non-broken attachments have cleared!"
+		dump_remaining "${CURRENT_RUN[@]}"
+		exit 0
 	fi
+
+	say "👉 Found ${#CURRENT_RUN[@]} that are still pending removal (${BROKEN} appear to be broken)..."
+
+	# There are still some ... have we timed out yet?
+	NOW="$(/usr/bin/date +%s)"
+	(( DIFF = ( NOW - START ) )) || true
+	[ ${DIFF} -lt ${CLEANUP_TIMEOUT} ] || fail_for_timeout "${CURRENT_RUN[@]}"
+
+	# Make sure our wait doesn't put us overbudget on the total wait
+	# time period, and make sure that if we have to wait one last time,
+	# that it also doesn't exceed our expected timeout
+	(( REMAINING = CLEANUP_TIMEOUT - DIFF )) || true
+	[ ${REMAINING} -gt 0 ] || fail_for_timeout "${CURRENT_RUN[@]}"
+	if [ ${REMAINING} -lt ${CLEANUP_RETRY_WAIT} ] ; then
+		# This will be our last wait, so just wait for however
+		# long the timeout is remaining and try one last time
+		CLEANUP_RETRY_WAIT=${REMAINING}
+		CLEANUP_RETRY_WAIT_STR="$(secs_to_timestr "${CLEANUP_RETRY_WAIT}")"
+	fi
+
+	say "⌛ Will wait ${CLEANUP_RETRY_WAIT_STR} before the next attempt..."
+	/usr/bin/sleep ${CLEANUP_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
+
 done
 exit 0
