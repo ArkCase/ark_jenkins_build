@@ -94,6 +94,8 @@ PV_DATA="$("${KUBECTL}" get pv -o json)"
 say "👀 Fetching all the PVC data..."
 PVC_DATA="$("${KUBECTL}" get pvc -A -o json)"
 
+say "👀 Analyzing the attachments..."
+
 FAILED=()
 MISSING_NODE=()
 MISSING_PV=()
@@ -149,11 +151,14 @@ for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 	say "\t${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 	FAILED+=("${ATTACHMENT}")
 done
-if [ ${#FAILED[@]} -gt 0 ] ; then
-	list_broken_items "broken attachments" "${FAILED[@]}"
-	list_broken_items "missing PVCs" "${MISSING_PVC[@]}"
-	list_broken_items "PVs without a PVC" "${PV_WITHOUT_PVC[@]}"
-	list_broken_items "missing PVs" "${MISSING_PV[@]}"
-	list_broken_items "missing Nodes" "${MISSING_NODE[@]}"
+if [ ${#FAILED[@]} -eq 0 ] ; then
+	ok "No broken attachments were found!"
+	exit 0
 fi
-exit 0
+
+list_broken_items "broken attachments" "${FAILED[@]}"
+list_broken_items "missing PVCs" "${MISSING_PVC[@]}"
+list_broken_items "PVs without a PVC" "${PV_WITHOUT_PVC[@]}"
+list_broken_items "missing PVs" "${MISSING_PV[@]}"
+list_broken_items "missing Nodes" "${MISSING_NODE[@]}"
+exit 1
