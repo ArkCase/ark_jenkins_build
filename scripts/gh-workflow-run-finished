@@ -1,0 +1,73 @@
+#!/bin/bash
+set -euo pipefail
+
+timestamp()
+{
+	date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+warn()
+{
+	say "⚠️ WARNING: ${@}"
+}
+
+err()
+{
+	say "❌ ERROR: ${@}"
+}
+
+fail()
+{
+	say "❌ ${@}" 1>&2
+	exit ${EXIT_CODE:-1}
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} workflow runid"
+	exit 1
+}
+
+[ ${#} -eq 2 ] || usage
+
+WORKFLOW="${1}"
+[ -n "${WORKFLOW}" ] || fail "The workflow may not be an empty string"
+RUN_ID="${2}"
+[ -n "${RUN_ID}" ] || fail "The runId may not be an empty string"
+
+GH_USER_FLAGS=()
+[ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
+
+# Wait for the run to complete
+say "\t👀 Checking for the status of run # ${RUN_ID} for workflow ${WORKFLOW}..."
+STATUS="$(gh run list --workflow "${WORKFLOW}" --json databaseId,status --jq ".[] | select(.databaseId == ${RUN_ID}) | .status")"
+[ -n "${STATUS}" ] || fail "No run found for ${WORKFLOW} with ID = ${RUN_ID}"
+
+FINISHED="true"
+case "${STATUS,,}" in
+	queued ) FINISHED="false" ;;
+	completed ) FINISHED="false" ;;
+	in_progress ) FINISHED="false" ;;
+	requested ) FINISHED="false" ;;
+	waiting ) FINISHED="false" ;;
+	action_required ) FINISHED="false" ;;
+	neutral ) FINISHED="false" ;;
+	cancelled ) ;;
+	failure ) ;;
+	skipped ) ;;
+	stale ) ;;
+	startup_failure ) ;;
+	success ) ;;
+	timed_out ) ;;
+	* ) ;;
+esac
+
+"${FINISHED}" || fail "Run # ${RUN_ID} for workflow ${WORKFLOW} is running (${STATUS})"
+
+say "✅ Run ${RUN_ID} for ${WORKFLOW} is finished (${STATUS})"
+exit 0

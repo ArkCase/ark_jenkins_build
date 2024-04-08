@@ -325,7 +325,7 @@ while true ; do
 		CLEANUP_RETRY_WAIT_STR="$(secs_to_timestr "${CLEANUP_RETRY_WAIT}")"
 	fi
 
-	say "⌛ Will wait ${CLEANUP_RETRY_WAIT_STR} before the next attempt..."
+	say "💤 Will wait ${CLEANUP_RETRY_WAIT_STR} before the next attempt..."
 	/usr/bin/sleep ${CLEANUP_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
 
 done

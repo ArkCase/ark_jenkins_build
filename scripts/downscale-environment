@@ -263,7 +263,7 @@ while true ; do
 		DOWNSCALE_RETRY_WAIT_STR="$(secs_to_timestr "${DOWNSCALE_RETRY_WAIT}")"
 	fi
 
-	say "⌛ Will wait ${DOWNSCALE_RETRY_WAIT_STR} before the next attempt..."
+	say "💤 Will wait ${DOWNSCALE_RETRY_WAIT_STR} before the next attempt..."
 	/usr/bin/sleep ${DOWNSCALE_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
 done
 

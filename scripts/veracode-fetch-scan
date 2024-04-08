@@ -106,7 +106,7 @@ while true ; do
 
 		# These are "waitable" statuses
 		"VENDOR CONFIRMATION" | "VENDOR REVIEWING" | "PRE-SCAN SUBMITTED" | "PRE-SCAN SUCCESS" | "SCAN IN PROCESS" )
-			say "\t⚠️ The scan is still running, sleeping for ${VERACODE_PROBE_SECONDS} seconds before probing again"
+			say "\t💤 The scan is still running, sleeping for ${VERACODE_PROBE_SECONDS} seconds before probing again"
 			/usr/bin/sleep "${VERACODE_PROBE_SECONDS}" || fail "Sleep interrupted, cannot continue"
 			continue
 			;;
