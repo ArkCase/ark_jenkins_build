@@ -1,6 +1,6 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
 
@@ -19,7 +19,7 @@ export DISABLE_DOWNSCALE
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
@@ -44,7 +44,7 @@ warn()
 
 err()
 {
-	say "❌ ${@}" 1>&2
+	say "❌ ${@}"
 }
 
 fail()
@@ -57,7 +57,7 @@ is_deployed()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	execute "${HELM}" get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
+	execute helm get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
 	return ${?}
 }
 
@@ -180,13 +180,13 @@ list_remaining()
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
 
-	"${KUBECTL}" \
+	kubectl \
 		get statefulsets.apps \
 		--namespace "${NAMESPACE}" \
 		--selector="app.kubernetes.io/instance=${RELEASE}" \
 		-o json | \
-		"${JQ}" -r '.items[] | select(.status.replicas > 0) | .metadata.name' | \
-		"${SORT}" -u
+		jq -r '.items[] | select(.status.replicas > 0) | .metadata.name' | \
+		sort -u
 }
 
 usage()
@@ -200,13 +200,8 @@ usage()
 DOWNSCALE_TIMEOUT=$(timestr_to_secs "${DOWNSCALE_TIMEOUT}") || fail "Invalid value for DOWNSCALE_TIMEOUT: [${DOWNSCALE_TIMEOUT}]"
 DOWNSCALE_RETRY_WAIT=$(timestr_to_secs "${DOWNSCALE_RETRY_WAIT}") || fail "Invalid value for DOWNSCALE_RETRY_WAIT: [${DOWNSCALE_RETRY_WAIT}]"
 
-HELM="$(type -P helm)" || fail "Failed to find helm in the path"
-JQ="$(type -P jq)" || fail "Failed to find jq in the path"
-KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
-SORT="$(type -P sort)" || fail "Failed to find sort in the path"
-
 if [ ${#} -eq 1 ] ; then
-	NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"
+	NAMESPACE="$(kubectl config view --minify -o jsonpath="{..namespace}")"
 	[ -n "${NAMESPACE}" ] || NAMESPACE="default"
 else
 	NAMESPACE="${1}"
@@ -224,7 +219,7 @@ is_deployed "${NAMESPACE}" "${RELEASE}" || fail "The release [${RELEASE}] is not
 # NOTE: the timeout is PER ITEM, not total...
 doing "Downscaling the existing StatefulSet instances"
 execute \
-	"${KUBECTL}" scale statefulset \
+	kubectl scale statefulset \
 		--namespace "${NAMESPACE}" \
 		--replicas=0 \
 		--selector="app.kubernetes.io/instance=${RELEASE}" && \
@@ -234,7 +229,7 @@ execute \
 DOWNSCALE_TIMEOUT_STR="$(secs_to_timestr "${DOWNSCALE_TIMEOUT}")"
 DOWNSCALE_RETRY_WAIT_STR="$(secs_to_timestr "${DOWNSCALE_RETRY_WAIT}")"
 say "⌛ Waiting for the downscale to complete (up to ${DOWNSCALE_TIMEOUT_STR} total)..."
-START="$(/usr/bin/date +%s)"
+START="$(date +%s)"
 while true ; do
 
 	# Get the StatefulSets that are still waiting to downscale
@@ -247,7 +242,7 @@ while true ; do
 	warn "There are ${#REMAINING[@]} StatefulSet instances: [ ${REMAINING[@]} ]"
 
 	# There are still some ... have we timed out yet?
-	NOW="$(/usr/bin/date +%s)"
+	NOW="$(date +%s)"
 	(( DIFF = ( NOW - START ) )) || true
 	[ ${DIFF} -lt ${DOWNSCALE_TIMEOUT} ] || fail "Timed out waiting for the StatefulSet instances to scale down to 0"
 
@@ -264,7 +259,7 @@ while true ; do
 	fi
 
 	say "💤 Will wait ${DOWNSCALE_RETRY_WAIT_STR} before the next attempt..."
-	/usr/bin/sleep ${DOWNSCALE_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
+	sleep ${DOWNSCALE_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
 done
 
 ok "Downscale complete!"

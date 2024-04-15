@@ -2,17 +2,17 @@
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
 {
-	echo -e "${@}"
+	echo -e "$(timestamp): ${@}"
 }
 
 fail()
 {
-	say "❌ ${@}" 1>&2
+	say "❌ ${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -30,11 +30,9 @@ if [ ${#} -eq 1 ] ; then
 	[ -n "${1}" ] || fail "The POM file path may not be the empty string"
 fi
 
-MVN="$(type -P mvn)" || fail "Failed to find the Maven executable in the path, cannot continue!"
-
 [ -e "${POM}" ] || fail "The POM file [${POM}] does not exist"
 [ -f "${POM}" ] || fail "The path [${POM}] is not a regular file"
 [ -r "${POM}" ] || fail "The POM file [${POM}] is not readable"
 
-CHANGELIST="$("${MVN}" -f "${POM}" help:evaluate -Dexpression=changelist -q -DforceStdout 2>&1)" || fail "Failed to compute the changelist using Maven's help:evaluate command: ${CHANGELIST}"
-exec /usr/bin/tr -d '\n' <<< "${CHANGELIST}"
+CHANGELIST="$(mvn -f "${POM}" help:evaluate -Dexpression=changelist -q -DforceStdout 2>&1)" || fail "Failed to compute the changelist using Maven's help:evaluate command: ${CHANGELIST}"
+exec tr -d '\n' <<< "${CHANGELIST}"

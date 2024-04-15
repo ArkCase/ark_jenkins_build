@@ -6,7 +6,7 @@ ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
 
 timestamp()
 {
-	/usr/bin/date -Ins
+	date -Ins -u
 }
 
 say()
@@ -47,11 +47,11 @@ list_broken_items()
 	local LABEL="${1}"
 	shift
 	local ITEMS=()
-	readarray -t ITEMS < <(echo -en "${@}" | "${TR}" " " "\n" | "${SORT}" -u)
+	readarray -t ITEMS < <(echo -en "${@}" | tr " " "\n" | sort -u)
 	set -- "${ITEMS[@]}"
 	if [ ${#} -gt 0 ] ; then
 		err "Found ${#} ${LABEL}:"
-		echo -e "${@}" | "${TR}" " " "\n" | "${SED}" -e "s;^;\t;g"
+		echo -e "${@}" | tr " " "\n" | sed -e "s;^;\t;g"
 	fi
 	return 0
 }
@@ -70,29 +70,13 @@ execute()
 	return ${?}
 }
 
-KUBECTL="$(type -P kubectl)" || fail "Could not find 'kubectl' in the path"
-JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
-SED="$(type -P sed)" || fail "Could not find 'sed' in the path"
-SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
-TR="$(type -P tr)" || fail "Could not find 'tr' in the path"
-
-say "👀 Looking for any broken volume attachments..."
-
-say "👀 Fetching all the Volume Attachment data on the cluster..."
-ATTACHMENT_DATA="$("${KUBECTL}" get "${ATTACHMENT_RESOURCE}" -o json)"
-
-readarray -t ATTACHMENTS < <("${JQ}" -r ".items[] | .metadata.name" <<< "${ATTACHMENT_DATA}" | "${SORT}" -u)
-ATTACHMENT_COUNT=${#ATTACHMENTS[@]}
-ok "Found ${ATTACHMENT_COUNT} volume attachments"
-[ ${ATTACHMENT_COUNT} -gt 0 ] || exit 0
-
 # Get all the PVCs in the currently default namespace
 say "👀 Fetching all the Node data on the cluster..."
-NODE_DATA="$("${KUBECTL}" get node -o json)"
+NODE_DATA="$(kubectl get node -o json)"
 say "👀 Fetching all the PV data on cluster..."
-PV_DATA="$("${KUBECTL}" get pv -o json)"
+PV_DATA="$(kubectl get pv -o json)"
 say "👀 Fetching all the PVC data..."
-PVC_DATA="$("${KUBECTL}" get pvc -A -o json)"
+PVC_DATA="$(kubectl get pvc -A -o json)"
 
 say "👀 Analyzing the attachments..."
 
@@ -102,13 +86,13 @@ MISSING_PV=()
 PV_WITHOUT_PVC=()
 MISSING_PVC=()
 for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
-	ATTACHMENT_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
+	ATTACHMENT_INFO="$(jq -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
 
 	OK="true"
 
 	# Find the node
-	NODE="$("${JQ}" -r ".spec.nodeName" <<< "${ATTACHMENT_INFO}")"
-	NODE_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
+	NODE="$(jq -r ".spec.nodeName" <<< "${ATTACHMENT_INFO}")"
+	NODE_INFO="$(jq -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
 	if [ -z "${NODE_INFO}" ] ; then
 		MISSING_NODE+=("${NODE}")
 		OK="false"
@@ -116,18 +100,18 @@ for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 	fi
 
 	# Find the volume
-	PV="$("${JQ}" -r ".spec.source.persistentVolumeName" <<< "${ATTACHMENT_INFO}")"
-	PV_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
+	PV="$(jq -r ".spec.source.persistentVolumeName" <<< "${ATTACHMENT_INFO}")"
+	PV_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
 
 	# Find the PVC
 	PVC=""
 	if [ -n "${PV_INFO}" ] ; then
 		PVC_INFO=""
 		NAMESPACE=""
-		CLAIM_REF="$("${JQ}" -r ".spec.claimRef" <<< "${PV_INFO}")"
+		CLAIM_REF="$(jq -r ".spec.claimRef" <<< "${PV_INFO}")"
 		if [ -n "${CLAIM_REF}" ] ; then
-			read NAMESPACE PVC < <("${JQ}" -r ".namespace + \" \" + .name" <<< "${CLAIM_REF}")
-			PVC_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
+			read NAMESPACE PVC < <(jq -r ".namespace + \" \" + .name" <<< "${CLAIM_REF}")
+			PVC_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
 			PVC="${NAMESPACE}/${PVC}"
 			if [ -z "${PVC_INFO}" ] ; then
 				MISSING_PVC+=("${PVC}")

@@ -1,20 +1,29 @@
 #!/bin/bash
 set -euo pipefail
 
-timestamp() {
-	/usr/bin/date -Ins -u
+timestamp()
+{
+	date -Ins -u
 }
 
-say() {
+say()
+{
 	echo -e "$(timestamp): ${@}"
 }
 
-fail() {
-	say "❌ ${@}" 1>&2
+err()
+{
+	say "❌ ${@}"
+}
+
+fail()
+{
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 
-usage() {
+usage()
+{
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} appId" 1>&2
 	exit 1
 }
@@ -25,18 +34,15 @@ usage() {
 APP_ID="${1}"
 [ -n "${APP_ID}" ] || fail "The application ID may not be the empty string"
 
-VERACODE="$(type -P veracode 2>/dev/null)" || fail "The veracode executable could not be found in the PATH"
-XMLSTARLET="$(type -P xmlstarlet 2>/dev/null)" || fail "The xmlstarlet executable could not be found in the PATH"
-
 [ -v VERACODE_API_KEY_ID ] || fail "The VERACODE_API_KEY_ID variable is not set, cannot continue"
 [ -n "${VERACODE_API_KEY_ID}" ] || fail "The VERACODE_API_KEY_ID variable has an empty value, cannot continue"
 [ -v VERACODE_API_KEY_SECRET ] || fail "The VERACODE_API_KEY_SECRET variable is not set, cannot continue"
 [ -n "${VERACODE_API_KEY_SECRET}" ] || fail "The VERACODE_API_KEY_SECRET variable has an empty value, cannot continue"
 
-XML="$("${VERACODE}" -action getapplist)" || fail "Failed to retrieve the application list"
+XML="$(veracode -action getapplist)" || fail "Failed to retrieve the application list"
 
 # Find the application with the correct (case-sensitive) name, and spit
 # out the Application ID
 
-APP_NAME="$(echo -n "${XML}" | "${XMLSTARLET}" sel -N "al=https://analysiscenter.veracode.com/schema/2.0/applist" -t -v "/al:applist/al:app[@app_id='${APP_ID}']/@app_name")" || fail "Failed to get the Application name for [${APP_ID}]"
+APP_NAME="$(echo -n "${XML}" | xmlstarlet sel -N "al=https://analysiscenter.veracode.com/schema/2.0/applist" -t -v "/al:applist/al:app[@app_id='${APP_ID}']/@app_name")" || fail "Failed to get the Application name for [${APP_ID}]"
 echo "${APP_NAME}"

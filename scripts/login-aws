@@ -1,25 +1,25 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
-SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
+SCRIPT="$(basename "${SCRIPT}")"
 
 set -euo pipefail
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
-say() {
+say()
+{
 	echo -e "$(timestamp): ${@}"
 }
 
-fail() {
-	say "❌ ${@}" 1>&2
+fail()
+{
+	say "❌ ${@}"
 	exit ${EXIT_CODE:-1}
 }
-
-AWS="$(type -P aws)" || fail "The 'aws' executable is not in the path - cannot continue"
 
 [ -v AWS_USERNAME ] || AWS_USERNAME="AWS"
 
@@ -31,14 +31,14 @@ export AWS_REGION
 say "👉 Using region ${AWS_REGION}"
 say "👉 Logging in with credentials from the environment"
 
-AWS_ACCOUNT_ID=$("${AWS}" sts get-caller-identity --query Account --output text 2>&1) || fail "Failed to get the account ID (rc = ${?}): ${AWS_ACCOUNT_ID}"
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>&1) || fail "Failed to get the account ID (rc = ${?}): ${AWS_ACCOUNT_ID}"
 [[ "${AWS_ACCOUNT_ID}" =~ ^[0-9]+$ ]] || fail "The account ID [${AWS_ACCOUNT_ID}] is invalid - must be a number!"
 say "\t✅ Account ID identified!"
 
 HOST="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
 say "👉 Fetching the AWS login password for Docker (account ID ${AWS_ACCOUNT_ID})..."
-PASS="$("${AWS}" ecr get-login-password --region "${AWS_REGION}" 2>&1)" || fail "Failed to fetch the AWS login password for account ${AWS_ACCOUNT_ID} (rc = ${?}): ${PASS}"
+PASS="$(aws ecr get-login-password --region "${AWS_REGION}" 2>&1)" || fail "Failed to fetch the AWS login password for account ${AWS_ACCOUNT_ID} (rc = ${?}): ${PASS}"
 say "\t✅ Docker password retrieved!"
 
 # Launch the docker login

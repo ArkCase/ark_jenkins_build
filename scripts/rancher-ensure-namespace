@@ -1,12 +1,12 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
@@ -21,7 +21,7 @@ warn()
 
 err()
 {
-	say "❌ ${@}" 1>&2
+	say "❌ ${@}"
 }
 
 fail()
@@ -40,8 +40,8 @@ is_valid_name()
 ensure_namespace_exists()
 {
 	local NAMESPACE="${1}"
-	"${KUBECTL}" get namespace "${NAMESPACE}" &>/dev/null && return 0
-	"${KUBECTL}" create namespace "${NAMESPACE}" && return 0
+	kubectl get namespace "${NAMESPACE}" &>/dev/null && return 0
+	kubectl create namespace "${NAMESPACE}" && return 0
 	return 1
 }
 
@@ -52,8 +52,6 @@ usage()
 }
 
 [ ${#} -eq 3 ] || usage
-
-KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
 
 NAMESPACE="${1}"
 is_valid_name "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"

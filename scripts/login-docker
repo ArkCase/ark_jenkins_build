@@ -1,21 +1,23 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
-SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
+SCRIPT="$(basename "${SCRIPT}")"
 
 set -euo pipefail
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
-say() {
+say()
+{
 	echo -e "$(timestamp): ${@}"
 }
 
-fail() {
-	say "❌ ${@}" 1>&2
+fail()
+{
+	say "❌ ${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -24,8 +26,6 @@ usage()
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [hostname]" 1>&2
 	exit 1
 }
-
-DOCKER="$(type -P docker)" || fail "The 'docker' executable is not in the path - cannot continue"
 
 [ ${#} -le 1 ] || usage
 
@@ -46,9 +46,9 @@ if [ -v DOCKER_PASSWORD ] ; then
 	say "👉 Logging in with Docker credentials from the environment"
 else
 	say "👉 Logging in with Docker credentials from STDIN..."
-	DOCKER_PASSWORD="$(/usr/bin/cat)"
+	DOCKER_PASSWORD="$(cat)"
 fi
 
-"${DOCKER}" login --username "${DOCKER_USERNAME}" --password-stdin "${HOST[@]}" <<< "${DOCKER_PASSWORD}" || fail "Docker login failed (rc = ${?})"
+docker login --username "${DOCKER_USERNAME}" --password-stdin "${HOST[@]}" <<< "${DOCKER_PASSWORD}" || fail "Docker login failed (rc = ${?})"
 say "\t✅ Docker login succeeded!"
 exit 0

@@ -1,12 +1,12 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
@@ -14,9 +14,14 @@ say()
 	echo -e "$(timestamp): ${@}"
 }
 
+err()
+{
+	say "❌ ${@}"
+}
+
 fail()
 {
-	say "❌ ${@}" 1>&2
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -33,7 +38,7 @@ auth_params()
 		PASS="${2}"
 	fi
 
-	"${CAT}" <<-EOF
+	cat <<-EOF
 	user "${USER}:${PASS}"
 	EOF
 }
@@ -52,11 +57,6 @@ fi
 [ -n "${RANCHER_TOKEN}" ] || fail "Must provide a non-empty RANCHER_TOKEN value"
 [[ "${RANCHER_TOKEN}" =~ ^[a-zA-Z0-9_-]+:.+$ ]] || fail "The RANCHER_TOKEN format is invalid"
 
-CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
-JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
-CAT="$(type -P cat)" || fail "Could not find 'cat' in the path"
-SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
-
 #
 # Allow for a configurable API endpoint, just in case...
 #
@@ -66,4 +66,4 @@ SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
 QUERY=".data[] | .name"
 "${ADD_DESC}" && QUERY+=' + " " + .description'
 
-"${CURL}" -fsSL --config <(auth_params "${RANCHER_TOKEN}") "${RANCHER_API_ENDPOINT}" | "${JQ}" -r "${QUERY}" | "${SORT}"
+curl -fsSL --config <(auth_params "${RANCHER_TOKEN}") "${RANCHER_API_ENDPOINT}" | jq -r "${QUERY}" | sort

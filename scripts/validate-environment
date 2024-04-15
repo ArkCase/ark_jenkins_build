@@ -1,6 +1,6 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
 
@@ -13,7 +13,7 @@ export DISABLE_VALIDATE
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
@@ -26,9 +26,14 @@ warn()
 	say "⚠️ ${@}"
 }
 
+err()
+{
+	say "❌ ${@}"
+}
+
 fail()
 {
-	say "❌ ${@}" 1>&2
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -36,7 +41,7 @@ is_deployed()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	execute "${HELM}" get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
+	execute helm get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
 	return ${?}
 }
 
@@ -73,11 +78,8 @@ usage()
 
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
-HELM="$(type -P helm)" || fail "Failed to find helm in the path"
-KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
-
 if [ ${#} -eq 1 ] ; then
-	NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"
+	NAMESPACE="$(kubectl config view --minify -o jsonpath="{..namespace}")"
 	[ -n "${NAMESPACE}" ] || NAMESPACE="default"
 else
 	NAMESPACE="${1}"
@@ -95,7 +97,7 @@ is_deployed "${NAMESPACE}" "${RELEASE}" || fail "The release [${RELEASE}] is not
 # Delete any prior test pods
 say "👉 Deleting any existing test pods"
 execute \
-	"${KUBECTL}" delete pod \
+	kubectl delete pod \
 		--namespace "${NAMESPACE}" \
 		--wait \
 		--now \
@@ -109,7 +111,7 @@ say "👉 Launching the Helm validation"
 # Apparently, --logs has an issue where cleanup will happen before the logs
 # are retrieved, so we're going to skip that for now
 execute \
-	"${HELM}" test \
+	helm test \
 		"${RELEASE}" \
 		--namespace "${NAMESPACE}" || \
 	fail "The Helm deployment verification failed, please review the logs"

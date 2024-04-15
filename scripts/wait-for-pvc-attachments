@@ -19,7 +19,7 @@ export DISABLE_CLEANUP
 
 timestamp()
 {
-	/usr/bin/date -Ins
+	date -Ins -u
 }
 
 say()
@@ -39,7 +39,7 @@ warn()
 
 err()
 {
-	say "❌ ${@}" 1>&2
+	say "❌ ${@}"
 }
 
 fail()
@@ -173,7 +173,7 @@ is_attachment_valid()
 	local ATTACHED=""
 	local NODE=""
 
-	read ATTACHED NODE < <("${JQ}" -r '(.status.attached | tostring) + " " + .spec.nodeName' <<< "${ATTACHMENT_INFO}")
+	read ATTACHED NODE < <(jq -r '(.status.attached | tostring) + " " + .spec.nodeName' <<< "${ATTACHMENT_INFO}")
 	if [ -z "${ATTACHED}" ] || [ -z "${NODE}" ] ; then
 		# No node info?!?
 		say "\t❌ the attachment [${ATTACHMENT}] has no node information... deleting"
@@ -215,12 +215,6 @@ usage()
 	exit 1
 }
 
-KUBECTL="$(type -P kubectl)" || fail "Could not find 'kubectl' in the path"
-JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
-SED="$(type -P sed)" || fail "Could not find 'sed' in the path"
-SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
-TIMEOUT="$(type -P timeout)" || fail "Could not find 'timeout' in the path"
-
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
 CLEANUP_TIMEOUT=$(timestr_to_secs "${CLEANUP_TIMEOUT}") || fail "Invalid value for CLEANUP_TIMEOUT: [${CLEANUP_TIMEOUT}]"
@@ -230,7 +224,7 @@ if [ ${#} -eq 2 ] ; then
 	NAMESPACE="${1}"
 	shift
 elif [ ! -v NAMESPACE ] ; then
-	NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"
+	NAMESPACE="$(kubectl config view --minify -o jsonpath="{..namespace}")"
 	[ -n "${NAMESPACE}" ] || NAMESPACE="default"
 fi
 is_valid_name "${NAMESPACE}" || fail "The NAMESPACE value [${NAMESPACE}] is not valid"
@@ -238,57 +232,57 @@ is_valid_name "${NAMESPACE}" || fail "The NAMESPACE value [${NAMESPACE}] is not 
 RELEASE="${1}"
 is_valid_name "${RELEASE}" || fail "The RELEASE value [${RELEASE}] is not valid"
 
-"${KUBECTL}" get namespace "${NAMESPACE}" &>/dev/null || fail "The namespace [${NAMESPACE}] does not exist"
+kubectl get namespace "${NAMESPACE}" &>/dev/null || fail "The namespace [${NAMESPACE}] does not exist"
 
 CLEANUP_TIMEOUT_STR="$(secs_to_timestr "${CLEANUP_TIMEOUT}")"
 CLEANUP_RETRY_WAIT_STR="$(secs_to_timestr "${CLEANUP_RETRY_WAIT}")"
 say "⌛ Waiting for the volume attachments to be released (up to ${CLEANUP_TIMEOUT_STR} total)..."
 PREVIOUS_RUN=()
-START="$(/usr/bin/date +%s)"
+START="$(date +%s)"
 while true ; do
 
 	# Get all the PVCs in the currently default namespace
 	say "👀 Fetching all the PVC data on the namespace ${NAMESPACE} for release ${RELEASE}..."
-	PVC_DATA="$("${KUBECTL}" get --namespace "${NAMESPACE}" pvc --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
+	PVC_DATA="$(kubectl get --namespace "${NAMESPACE}" pvc --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
 	say "👀 Fetching all the PV data on cluster..."
-	PV_DATA="$("${KUBECTL}" get pv -o json)"
+	PV_DATA="$(kubectl get pv -o json)"
 	say "👀 Fetching all the Node data on the cluster..."
-	NODE_DATA="$("${KUBECTL}" get node -o json)"
+	NODE_DATA="$(kubectl get node -o json)"
 
-	PVC_COUNT="$("${JQ}" -r ".items | length" <<< "${PVC_DATA}")"
+	PVC_COUNT="$(jq -r ".items | length" <<< "${PVC_DATA}")"
 
 	ok "Found ${PVC_COUNT} PVCs"
 	[ ${PVC_COUNT} -gt 0 ] || exit 0
 
-	readarray -t PVCS < <("${JQ}" -r ".items[] | .metadata.name" <<< "${PVC_DATA}" | "${SORT}" -u)
+	readarray -t PVCS < <(jq -r ".items[] | .metadata.name" <<< "${PVC_DATA}" | sort -u)
 
 	say "👀 Fetching all the Volume Attachment data on the cluster..."
-	ATTACHMENT_DATA="$("${KUBECTL}" get "${ATTACHMENT_RESOURCE}" -o json)"
+	ATTACHMENT_DATA="$(kubectl get "${ATTACHMENT_RESOURCE}" -o json)"
 
 	(( BROKEN=0 )) || true
 	CURRENT_RUN=()
 	for PVC in "${PVCS[@]}" ; do
 
-		PVC_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
+		PVC_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
 
-		PV="$("${JQ}" -r ".spec.volumeName" <<< "${PVC_INFO}")"
-		PV_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
+		PV="$(jq -r ".spec.volumeName" <<< "${PVC_INFO}")"
+		PV_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
 		if [ -z "${PV}" ] || [ -z "${PV_INFO}" ] ; then
 			err "No volume ${PV} found ... referenced by PVC ${PVC}"
 			continue
 		fi
 
 		# For each PVC, identify the pod(s) it's attached to
-		readarray -t ATTACHMENTS < <("${JQ}" -r ".items[] | select(.spec.source.persistentVolumeName == \"${PV}\") | .metadata.name" <<< "${ATTACHMENT_DATA}")
+		readarray -t ATTACHMENTS < <(jq -r ".items[] | select(.spec.source.persistentVolumeName == \"${PV}\") | .metadata.name" <<< "${ATTACHMENT_DATA}")
 
 		[ "${#ATTACHMENTS[@]}" -gt 0 ] || continue
 
 		say "👀 Found ${#ATTACHMENTS[@]} attachments for ${PVC}"
 		for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
-			ATTACHMENT_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
-			NODE="$("${JQ}" -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
+			ATTACHMENT_INFO="$(jq -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
+			NODE="$(jq -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
 
-			NODE_INFO="$("${JQ}" -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
+			NODE_INFO="$(jq -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
 
 			ATTACHMENT_REF="${PVC}/${PV}/${ATTACHMENT}/${NODE}"
 			OK="true"
@@ -309,7 +303,7 @@ while true ; do
 	say "👉 Found ${#CURRENT_RUN[@]} that are still pending removal (${BROKEN} appear to be broken)..."
 
 	# There are still some ... have we timed out yet?
-	NOW="$(/usr/bin/date +%s)"
+	NOW="$(date +%s)"
 	(( DIFF = ( NOW - START ) )) || true
 	[ ${DIFF} -lt ${CLEANUP_TIMEOUT} ] || fail_for_timeout "${CURRENT_RUN[@]}"
 
@@ -326,7 +320,7 @@ while true ; do
 	fi
 
 	say "💤 Will wait ${CLEANUP_RETRY_WAIT_STR} before the next attempt..."
-	/usr/bin/sleep ${CLEANUP_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
+	sleep ${CLEANUP_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
 
 done
 exit 0

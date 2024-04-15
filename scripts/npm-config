@@ -1,7 +1,7 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
-SCRIPT="$(/usr/bin/basename "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE}")"
+BASEDIR="$(dirname "${SCRIPT}")"
+SCRIPT="$(basename "${SCRIPT}")"
 
 FUNCTIONS="${BASEDIR}/.functions"
 if ! . "${FUNCTIONS}" ; then

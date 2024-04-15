@@ -2,12 +2,12 @@
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
 {
-	echo -e "${@}"
+	echo -e "$(timestamp): ${@}"
 }
 
 fail()
@@ -34,8 +34,8 @@ if [ ${#} -eq 1 ] ; then
 		DIR="${F}"
 	else
 		# If it's a file, then split it ...
-		DIR="$(/usr/bin/dirname "${F}")"
-		POM="$(/usr/bin/basename "${F}")"
+		DIR="$(dirname "${F}")"
+		POM="$(basename "${F}")"
 	fi
 fi
 
@@ -51,10 +51,8 @@ cd "${DIR}" || fail "Failed to CD into [${DIR}]"
 [ -f "${POM}" ] || fail "The path [${POM}] is not a regular file"
 [ -r "${POM}" ] || fail "The POM file [${POM}] is not readable"
 
-MVN="$(type -P mvn)" || fail "Failed to find the Maven executable in the path (mvn), cannot continue!"
-
 # Have to use this, or things may not work properly everywhere
 # if an old version of the plugin is used
 HELP="org.apache.maven.plugins:maven-help-plugin:3.4.0"
 
-exec "${MVN}" "${HELP}:evaluate" -Dexpression=project.version -q -DforceStdout -f "$(/usr/bin/basename "${POM}")"
+exec mvn "${HELP}:evaluate" -Dexpression=project.version -q -DforceStdout -f "$(basename "${POM}")"

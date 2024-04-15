@@ -1,6 +1,6 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ export DISABLE_UNDEPLOY
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
@@ -29,9 +29,14 @@ warn()
 	say "⚠️ ${@}"
 }
 
+err()
+{
+	say "❌ ${@}"
+}
+
 fail()
 {
-	say "❌ ${@}" 1>&2
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -43,12 +48,12 @@ should_uninstall()
 	local STATUS=""
 
 	# Have to split this or our logic won't work
-	STATUS="$("${HELM}" status "${RELEASE}" --namespace "${NAMESPACE}" -o json)" || return ${?}
+	STATUS="$(helm status "${RELEASE}" --namespace "${NAMESPACE}" -o json)" || return ${?}
 
 	# Can be one of: unknown, deployed, uninstalled,
 	# superseded, failed, uninstalling, pending-install,
 	# pending-upgrade or pending-rollback
-	local RESULT="$("${JQ}" -r '.info.status' <<< "${STATUS}")"
+	local RESULT="$(jq -r '.info.status' <<< "${STATUS}")"
 	case "${RESULT,,}" in
 		uninstalled ) return 1 ;;
 		* ) return 0 ;;
@@ -83,7 +88,7 @@ execute()
 is_namespace_exists()
 {
 	local NAMESPACE="${1}"
-	execute "${KUBECTL}" get namespace "${NAMESPACE}" &>/dev/null || return ${?}
+	execute kubectl get namespace "${NAMESPACE}" &>/dev/null || return ${?}
 	return 0
 }
 
@@ -95,12 +100,8 @@ usage()
 
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
-HELM="$(type -P helm)" || fail "Failed to find helm in the path"
-JQ="$(type -P jq)" || fail "Failed to find jq in the path"
-KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
-
 if [ ${#} -eq 1 ] ; then
-	NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"
+	NAMESPACE="$(kubectl config view --minify -o jsonpath="{..namespace}")"
 	[ -n "${NAMESPACE}" ] || NAMESPACE="default"
 else
 	NAMESPACE="${1}"
@@ -125,7 +126,7 @@ fi
 # Delete the old installation, since it's the safest bet to ensure
 # that the correct resources, containers, and deployments are used
 execute \
-	"${HELM}" uninstall "${RELEASE}" \
+	helm uninstall "${RELEASE}" \
 		--namespace "${NAMESPACE}" \
 		--keep-history \
 		--cascade foreground \

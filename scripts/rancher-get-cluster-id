@@ -1,12 +1,12 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
@@ -14,9 +14,14 @@ say()
 	echo -e "$(timestamp): ${@}"
 }
 
+err()
+{
+	say "❌ ${@}"
+}
+
 fail()
 {
-	say "❌ ${@}" 1>&2
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -33,7 +38,7 @@ auth_params()
 		PASS="${2}"
 	fi
 
-	"${CAT}" <<-EOF
+	cat <<-EOF
 	user "${USER}:${PASS}"
 	EOF
 }
@@ -66,11 +71,7 @@ RANCHER_API_ENDPOINT="${BASH_REMATCH[0]}/v3/clusters"
 CLUSTER_NAME="${1}"
 [ -n "${CLUSTER_NAME}" ] || fail "Must provide a non-empty cluster name"
 
-CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
-JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
-CAT="$(type -P cat)" || fail "Could not find 'cat' in the path"
-
-CLUSTER_ID="$("${CURL}" -fsSL --config <(auth_params "${RANCHER_TOKEN}") "${RANCHER_API_ENDPOINT}" | "${JQ}" -r ".data[] | select(.name == \"${CLUSTER_NAME}\") | .id")" || fail "Failed to query the cluster ID for [${CLUSTER_NAME}] (rc=${?})"
+CLUSTER_ID="$(curl -fsSL --config <(auth_params "${RANCHER_TOKEN}") "${RANCHER_API_ENDPOINT}" | jq -r ".data[] | select(.name == \"${CLUSTER_NAME}\") | .id")" || fail "Failed to query the cluster ID for [${CLUSTER_NAME}] (rc=${?})"
 [ -n "${CLUSTER_ID}" ] || fail "No cluster ID was returned for [${CLUSTER_NAME}]"
 echo "${CLUSTER_ID}"
 exit 0

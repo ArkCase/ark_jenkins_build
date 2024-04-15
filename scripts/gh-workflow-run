@@ -13,17 +13,17 @@ say()
 
 warn()
 {
-	say "⚠️ WARNING: ${@}"
+	say "⚠️ ${@}"
 }
 
 err()
 {
-	say "❌ ERROR: ${@}"
+	say "❌ ${@}"
 }
 
 fail()
 {
-	say "❌ ${@}"
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -82,7 +82,7 @@ while true ; do
 
 	NOW="$(date +%s)"
 	[ $(( NOW - WAIT_START )) -lt 300 ] || fail "Timed out trying to identify the launched run ID"
-	/usr/bin/sleep 5 || fail "Interrupted while sleeping, cannot continue"
+	sleep 5 || fail "Interrupted while sleeping, cannot continue"
 done
 
 # Wait for the run to complete

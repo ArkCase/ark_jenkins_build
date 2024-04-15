@@ -1,6 +1,6 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ export DISABLE_DEPLOY
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
@@ -36,7 +36,7 @@ ok()
 
 err()
 {
-	say "❌ ${@}" 1>&2
+	say "❌ ${@}"
 }
 
 fail()
@@ -73,8 +73,8 @@ execute()
 ensure_namespace_exists()
 {
 	local NAMESPACE="${1}"
-	execute "${KUBECTL}" get namespace "${NAMESPACE}" &>/dev/null && return 0
-	execute "${KUBECTL}" create namespace "${NAMESPACE}" && return 0
+	execute kubectl get namespace "${NAMESPACE}" &>/dev/null && return 0
+	execute kubectl create namespace "${NAMESPACE}" && return 0
 	return 1
 }
 
@@ -86,12 +86,12 @@ sanitize_paths()
 
 	# First, split into parts so we can retain the
 	# declaration order
-	readarray -t PARTS < <(/usr/bin/tr "${SEP}" "\n" <<< "${STR}" | /usr/bin/sed -e '/^\s*$/d')
+	readarray -t PARTS < <(tr "${SEP}" "\n" <<< "${STR}" | sed -e '/^\s*$/d')
 	local LIST=":"
 	for P in "${PARTS[@]}" ; do
 		[ -n "${P}" ] || continue
 		# Skip it if already marked
-		/usr/bin/fgrep -q ":${P}:" <<< "${LIST}" && continue
+		fgrep -q ":${P}:" <<< "${LIST}" && continue
 		LIST+="${P}:"
 		echo "${P}"
 	done
@@ -131,11 +131,8 @@ set -- "${BASE_ARGS[@]}"
 
 [ ${#} -ge 3 ] && [ ${#} -le 4 ] || usage
 
-HELM="$(type -P helm)" || fail "Failed to find helm in the path"
-KUBECTL="$(type -P kubectl)" || fail "Failed to find kubectl in the path"
-
 if [ "${#}" -eq 3 ] ; then
-	NAMESPACE="$("${KUBECTL}" config view --minify -o jsonpath="{..namespace}")"
+	NAMESPACE="$(kubectl config view --minify -o jsonpath="{..namespace}")"
 	[ -n "${NAMESPACE}" ] || NAMESPACE="default"
 else
 	NAMESPACE="${1}"
@@ -163,7 +160,7 @@ is_valid_name "${ENVIRONMENT_NAME}" || fail "Invalid environment name [${ENVIRON
 
 [ -v DEPLOYMENT_DIR ] || DEPLOYMENT_DIR=""
 [ -n "${DEPLOYMENT_DIR}" ] || DEPLOYMENT_DIR="${PWD}"
-DEPLOYMENT_DIR="$(/usr/bin/readlink -f "${DEPLOYMENT_DIR}")" || fail "Failed to canonicalize the path for [${DEPLOYMENT_DIR}]"
+DEPLOYMENT_DIR="$(readlink -f "${DEPLOYMENT_DIR}")" || fail "Failed to canonicalize the path for [${DEPLOYMENT_DIR}]"
 
 say "Deploying from [${DEPLOYMENT_DIR}]..."
 [ -f "${DEPLOYMENT_DIR}/deployment.yaml" ] || fail "This does not seem to be a deployment directory - no deployment.yaml was found!"
@@ -189,7 +186,7 @@ for D in "${COMMON_DIRS[@]}" ; do
 	if [ -d "${COMMON_DIR}" ] ; then
 		while read V ; do
 			VALUES+=(-f "${V}")
-		done < <(/usr/bin/find "${COMMON_DIR}" -type f -iname '*.yaml' | /usr/bin/sort -u)
+		done < <(find "${COMMON_DIR}" -type f -iname '*.yaml' | sort -u)
 	else
 		warn "No common values are being applied from [${COMMON_DIR}] - the directory doesn't exist"
 	fi
@@ -208,7 +205,7 @@ ENV_DIR="${DEPLOYMENT_DIR}/envs/${ENVIRONMENT_NAME}"
 if [ -d "${ENV_DIR}" ] ; then
 	while read V ; do
 		VALUES+=(-f "${V}")
-	done < <(/usr/bin/find "${ENV_DIR}" -type f -iname '*.yaml' | /usr/bin/sort -u)
+	done < <(find "${ENV_DIR}" -type f -iname '*.yaml' | sort -u)
 else
 	warn "No environment folder found at [${DEPLOYMENT_DIR}] for [${ENVIRONMENT_NAME}]"
 fi
@@ -228,7 +225,7 @@ set -- "${HELM_ARGS[@]}"
 # uninstalls
 RC=0
 execute \
-	"${HELM}" install --replace \
+	helm install --replace \
 		"${RELEASE}" "${CHART}" \
 		--namespace "${NAMESPACE}" \
 		--wait \
@@ -243,5 +240,5 @@ else
 	err "The Helm deployment has failed, please review the logs"
 fi
 
-execute "${KUBECTL}" --namespace "${NAMESPACE}" get pods
+execute kubectl --namespace "${NAMESPACE}" get pods
 exit ${RC}

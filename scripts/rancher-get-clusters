@@ -1,12 +1,12 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
@@ -14,9 +14,14 @@ say()
 	echo -e "$(timestamp): ${@}"
 }
 
+err()
+{
+	say "❌ ${@}"
+}
+
 fail()
 {
-	say "❌ ${@}" 1>&2
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -33,7 +38,7 @@ auth_params()
 		PASS="${2}"
 	fi
 
-	"${CAT}" <<-EOF
+	cat <<-EOF
 	user "${USER}:${PASS}"
 	EOF
 }
@@ -55,11 +60,6 @@ auth_params()
 [[ "${RANCHER_API_URL}" =~ ^(.*)/*$ ]] || fail "Invalid Rancher API URL [${RANCHER_API_URL}]"
 RANCHER_API_ENDPOINT="${BASH_REMATCH[0]}/v3/clusters"
 
-CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
-SORT="$(type -P sort)" || fail "Could not find 'sort' in the path"
-JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
-CAT="$(type -P cat)" || fail "Could not find 'cat' in the path"
-
-LIST="$("${CURL}" -fsSL --config <(auth_params "${RANCHER_TOKEN}") "${RANCHER_API_ENDPOINT}" | "${JQ}" -r ".data[] | .id + \" \" + .name")" || fail "Failed to query the cluster list (rc=${?})"
-echo "${LIST}" | "${SORT}" -k 2
+LIST="$(curl -fsSL --config <(auth_params "${RANCHER_TOKEN}") "${RANCHER_API_ENDPOINT}" | jq -r ".data[] | .id + \" \" + .name")" || fail "Failed to query the cluster list (rc=${?})"
+echo "${LIST}" | sort -k 2
 exit 0

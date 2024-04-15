@@ -2,7 +2,7 @@
 
 usage()
 {
-	echo -e "usage: [CAPTURE_ALL=\"log-file.log\"] ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} command [args...]" 1>&2
+	echo -e "usage: [CAPTURE_ALL=\"all-output.log\"] [CAPTURE_OUT=\"stdout.log\"] [CAPTURE_ERR=\"stderr.log\"] ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} command [args...]" 1>&2
 	exit 1
 }
 
@@ -10,13 +10,13 @@ usage()
 
 [ -v CAPTURE_ALL ] || CAPTURE_ALL=""
 if [ -n "${CAPTURE_ALL}" ] ; then
-	exec &> >(/usr/bin/tee "${CAPTURE_ALL}")
+	exec &> >(tee "${CAPTURE_ALL}")
 else
-	[ -v CAPTURE_ERR ] || CAPTURE_ERR=""
-	[ -n "${CAPTURE_ERR}" ] && exec 2> >(/usr/bin/tee "${CAPTURE_ERR}")
-
 	[ -v CAPTURE_OUT ] || CAPTURE_OUT=""
-	[ -n "${CAPTURE_OUT}" ] && exec 1> >(/usr/bin/tee "${CAPTURE_OUT}")
+	[ -n "${CAPTURE_OUT}" ] && exec 1> >(tee "${CAPTURE_OUT}")
+
+	[ -v CAPTURE_ERR ] || CAPTURE_ERR=""
+	[ -n "${CAPTURE_ERR}" ] && exec 2> >(tee "${CAPTURE_ERR}")
 fi
 
 exec "${@}"

@@ -1,12 +1,12 @@
 #!/bin/bash
-SCRIPT="$(/usr/bin/readlink -f "${BASH_SOURCE:-${0}}")"
-BASEDIR="$(/usr/bin/dirname "${SCRIPT}")"
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
 
 timestamp()
 {
-	/usr/bin/date -Ins -u
+	date -Ins -u
 }
 
 say()
@@ -16,7 +16,7 @@ say()
 
 fail()
 {
-	say "❌ ${@}" 1>&2
+	say "❌ ${@}"
 	exit ${EXIT_CODE:-1}
 }
 
@@ -33,7 +33,7 @@ auth_params()
 		PASS="${2}"
 	fi
 
-	"${CAT}" <<-EOF
+	cat <<-EOF
 	user "${USER}:${PASS}"
 	EOF
 }
@@ -72,11 +72,6 @@ CLUSTER_NAME="${2}"
 PROJECT_NAME="${3}"
 [ -n "${PROJECT_NAME}" ] || fail "Must provide a non-empty project name"
 
-KUBECTL="$(type -P kubectl)" || fail "Could not find 'kubectl' in the path"
-CURL="$(type -P curl)" || fail "Could not find 'curl' in the path"
-JQ="$(type -P jq)" || fail "Could not find 'jq' in the path"
-CAT="$(type -P cat)" || fail "Could not find 'cat' in the path"
-
 PROJECT_INFO="$("${BASEDIR}/rancher-get-project-id" "${CLUSTER_NAME}" "${PROJECT_NAME}")" || exit 1
 
 [[ "${PROJECT_INFO}" =~ ^([^/]+)/([^/]+)$ ]] || fail "Invalid project information: [${PROJECT_INFO}]"
@@ -86,7 +81,7 @@ PROJECT_ID="${BASH_REMATCH[2]}"
 
 RANCHER_API_ENDPOINT+="/k8s/clusters/${CLUSTER_ID}/v1/namespaces"
 
-PATCH_JSON="$("${CAT}" <<-EOF
+PATCH_JSON="$(cat <<-EOF
 {
 	"metadata": {
 		"annotations": {
@@ -101,9 +96,9 @@ EOF
 )"
 
 say "👉 Patching the namespace ${NAMESPACE} for the project ${PROJECT_NAME} in the cluster ${CLUSTER_NAME}..."
-"${KUBECTL}" patch namespace "${NAMESPACE}" -p "${PATCH_JSON}" || fail "Failed to patch the namespace ${NAMESPACE}:\n${PATCH_JSON}"
+kubectl patch namespace "${NAMESPACE}" -p "${PATCH_JSON}" || fail "Failed to patch the namespace ${NAMESPACE}:\n${PATCH_JSON}"
 
-API_JSON="$("${CAT}" <<-EOF
+API_JSON="$(cat <<-EOF
 {
 	"metadata": {
 		"annotations": {
@@ -118,14 +113,14 @@ EOF
 
 say "👉 Adding the namespace ${NAMESPACE} into the project ${PROJECT_NAME} in the cluster ${CLUSTER_NAME}..."
 OUT="$(
-	"${CURL}" -sSL \
+	curl -sSL \
 	--config <(auth_params "${RANCHER_TOKEN}") \
 	--header "Content-Type: application/json" \
 	--data "${API_JSON}" \
 	"${RANCHER_API_ENDPOINT}" 2>&1
 )"
 
-read STATUS TYPE CODE < <("${JQ}" -r '((.status // "-") | tostring) + " " + (.type // "-") + " " + (.code // "-")' <<< "${OUT}")
+read STATUS TYPE CODE < <(jq -r '((.status // "-") | tostring) + " " + (.type // "-") + " " + (.code // "-")' <<< "${OUT}")
 
 RESULT="added"
 case "${STATUS}" in

@@ -13,17 +13,17 @@ say()
 
 warn()
 {
-	say "⚠️ WARNING: ${@}"
+	say "⚠️ ${@}"
 }
 
 err()
 {
-	say "❌ ERROR: ${@}"
+	say "❌ ${@}"
 }
 
 fail()
 {
-	say "❌ ${@}" 1>&2
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 

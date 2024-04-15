@@ -7,11 +7,12 @@
 [ -v BASH_SOURCE ] || BASH_SOURCE="${0}"
 [ -v BASH_ARGV0 ] || BASH_ARGV0="${BASH_SOURCE}"
 
-usage() {
+usage()
+{
 	echo -e "usage: ${BASH_ARGV0} command..."
 	exit 1
 }
 
-[ ${#} -lt 1 ] && usage
+[ ${#} -gt 0 ] || usage
 
 exec "${@}"
