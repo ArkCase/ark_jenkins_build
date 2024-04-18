@@ -44,7 +44,7 @@ GH_USER_FLAGS=()
 [ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
 
 # Wait for the run to complete
-STATUS="$(gh run list --workflow "${WORKFLOW}" --json databaseId,status --jq ".[] | select(.databaseId == ${RUN_ID}) | .status")"
+STATUS="$(gh run list --workflow "${WORKFLOW}" --json databaseId,status,conclusion --jq ".[] | select(.databaseId == ${RUN_ID})")"
 [ -n "${STATUS}" ] || fail "No run found for ${WORKFLOW} with ID = ${RUN_ID}"
 
 echo -n "${STATUS,,}"

@@ -41,26 +41,8 @@ WORKFLOW="${1}"
 RUN_ID="${2}"
 [ -n "${RUN_ID}" ] || fail "The runId may not be an empty string"
 
-STATUS="$(gh-workflow-run-status "${WORKFLOW}" "${RUN_ID}")"
-
-FINISHED="true"
-case "${STATUS,,}" in
-	queued ) FINISHED="false" ;;
-	in_progress ) FINISHED="false" ;;
-	requested ) FINISHED="false" ;;
-	waiting ) FINISHED="false" ;;
-	action_required ) FINISHED="false" ;;
-	neutral ) FINISHED="false" ;;
-	completed ) ;;
-	cancelled ) ;;
-	failure ) ;;
-	skipped ) ;;
-	stale ) ;;
-	startup_failure ) ;;
-	success ) ;;
-	timed_out ) ;;
-	* ) ;;
-esac
-
+STATUS="$(jq -r ".status" < <(gh-workflow-run-status "${WORKFLOW}" "${RUN_ID}"))"
+FINISHED="false"
+[ "${STATUS,,}" == "completed" ] && FINISHED="true"
 echo "${FINISHED}"
 exit 0
