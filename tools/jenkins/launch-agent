@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT="${0}"
+SCRIPT="$(readlink -f "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}")"
 BASEDIR="$(dirname "${0}")"
 SCRIPT="$(basename "${0}")"
 INVOKED="${0}"
@@ -89,7 +89,7 @@ if [ -z "${JENKINS_URL}" ] ; then
 	[ -n "${JENKINS_URL}" ] || fail "The URL file did not contain any valid Jenkins URL"
 fi
 
-download-agent "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
+"${BASEDIR}/download-agent" "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
 
 CMD=(
 	"${JAVA_EXE}"
