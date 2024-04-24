@@ -6,21 +6,35 @@ INVOKED="${0}"
 
 set -eou pipefail
 
-say() {
-	echo -e "${@}"
+timestamp()
+{
+	date -Ins -u
 }
 
-err() {
-	say "${@}" 1>&2
+say()
+{
+	echo -e "$(timestamp): ${@}"
 }
 
-fail() {
-	err "ERROR: ${@}"
+ok()
+{
+	say "✅ ${@}"
+}
+
+err()
+{
+	say "❌ ${@}"
+}
+
+fail()
+{
+	err "${@}"
 	exit 1
 }
 
-usage() {
-	err "usage: ${INVOKED} java-exe fs-dir [jvm-args]"
+usage()
+{
+	echo "usage: ${INVOKED} java-exe fs-dir [jvm-args]" 1>&2
 	exit 1
 }
 
@@ -75,17 +89,15 @@ if [ -z "${JENKINS_URL}" ] ; then
 	[ -n "${JENKINS_URL}" ] || fail "The URL file did not contain any valid Jenkins URL"
 fi
 
-# Fetch the agent from ${JENKINS_URL}/jnlpJars/agent.jar
-AGENT_PATH="/jnlpJars/agent.jar"
-[[ "${JENKINS_URL}" =~ /$ ]] && AGENT_PATH="${AGENT_PATH:1}"
-SRC_URL="${JENKINS_URL}${AGENT_PATH}"
-AGENT_JAR="${HOME}/jenkins-agent.jar"
-say "Downloading the agent from [${SRC_URL}] into [${AGENT_JAR}]..."
-/usr/bin/curl -fsSL -o "${AGENT_JAR}" "${SRC_URL}" || fail "Failed to download the agent"
+download-agent "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
 
-exec "${JAVA_EXE}" \
-	"${JVM_ARGS[@]}" \
-	-jar "${AGENT_JAR}" \
-	-noReconnect \
-	-noKeepAlive \
+CMD=(
+	"${JAVA_EXE}"
+	"${JVM_ARGS[@]}"
+	-jar "${AGENT_JAR}"
+	-noReconnect
+	-noKeepAlive
 	-agentLog "${FS_DIR}/agent.log"
+)
+say "🚀 Launching the Java agent as: ${CMD[@]@Q}"
+exec "${CMD[@]}"
