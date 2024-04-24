@@ -37,8 +37,7 @@ JAVA_EXE="${1}"
 # If it doesn't have any slashes, then it's assuming the executable must be in the path
 if ! [[ "${JAVA_EXE}" =~ / ]] ; then
 	OLD_EXE="${JAVA_EXE}"
-	JAVA_EXE="$(which "${JAVA_EXE}" 2>/dev/null)"
-	[ -n "${JAVA_EXE}" ] || fail "Could not find the Java executable [${OLD_EXE}] in the path"
+	JAVA_EXE="$(type -P "${JAVA_EXE}")" || fail "Could not find the Java executable [${OLD_EXE}] in the path"
 fi
 
 [ -e "${JAVA_EXE}" ] || fail "The file [${JAVA_EXE}] can't be used as the Java executable (does not exist)"
