@@ -1,0 +1,6 @@
+#!/bin/bash
+[ -v KUBERNETES_SERVICE_HOST ] || exit 1
+[ -v KUBERNETES_SERVICE_PORT ] || exit 1
+[ -v KUBERNETES_SERVICE_PORT_HTTPS ] || exit 1
+echo -e "☁️ Kubernetes detected!"
+exit 0

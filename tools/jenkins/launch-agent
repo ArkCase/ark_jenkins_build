@@ -89,7 +89,7 @@ if [ -z "${JENKINS_URL}" ] ; then
 	[ -n "${JENKINS_URL}" ] || fail "The URL file did not contain any valid Jenkins URL"
 fi
 
-"${BASEDIR}/download-agent" "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
+download-agent "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
 
 CMD=(
 	"${JAVA_EXE}"

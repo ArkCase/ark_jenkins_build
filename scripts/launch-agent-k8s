@@ -1,0 +1,81 @@
+#!/bin/bash
+set -eou pipefail
+
+timestamp()
+{
+	date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+ok()
+{
+	say "✅ ${@}"
+}
+
+err()
+{
+	say "❌ ${@}"
+}
+
+fail()
+{
+	err "${@}"
+	exit 1
+}
+
+[ -v KUBERNETES_SERVICE_HOST ] || fail "KUBERNETES_SERVICE_HOST not defined"
+[ -v KUBERNETES_SERVICE_PORT ] || fail "KUBERNETES_SERVICE_PORT not defined"
+[ -v KUBERNETES_SERVICE_PORT_HTTPS ] || fail "KUBERNETES_SERVICE_PORT_HTTPS not defined"
+
+[ -v JENKINS_JAVA_BIN ] || JENKINS_JAVA_BIN=""
+[ -n "${JENKINS_JAVA_BIN}" ] || JENKINS_JAVA_BIN="java"
+JAVA_BIN="$(type -P "${JENKINS_JAVA_BIN}")" || fail "Could not find the Java binary [${JENKINS_JAVA_BIN}]"
+
+[ -v JENKINS_JAVA_OPTS ] || JENKINS_JAVA_OPTS=""
+[ -n "${JENKINS_JAVA_OPTS}" ] || JENKINS_JAVA_OPTS="${JAVA_OPTS:-}"
+
+CMD=()
+[ -v JENKINS_DIRECT_CONNECTION ] || JENKINS_DIRECT_CONNECTION=""
+[ -n "${JENKINS_DIRECT_CONNECTION}" ] && CMD+=(-direct "${JENKINS_DIRECT_CONNECTION}")
+
+[ -v JENKINS_INSTANCE_IDENTITY ] || JENKINS_INSTANCE_IDENTITY=""
+[ -n "${JENKINS_INSTANCE_IDENTITY}" ] && CMD+=(-instanceIdentity "${JENKINS_INSTANCE_IDENTITY}")
+
+[ -v JENKINS_AGENT_NAME ] || JENKINS_AGENT_NAME=""
+[ -n "${JENKINS_AGENT_NAME}" ] && CMD+=(-name "${JENKINS_AGENT_NAME}")
+
+[ -v JENKINS_PROTOCOLS ] || JENKINS_PROTOCOLS=""
+[ -n "${JENKINS_PROTOCOLS}" ] && CMD+=(-protocols "${JENKINS_PROTOCOLS}")
+
+[ -v JENKINS_SECRET ] || JENKINS_SECRET=""
+[ -n "${JENKINS_SECRET}" ] && CMD+=(-secret "${JENKINS_SECRET}")
+
+[ -v JENKINS_TUNNEL ] || JENKINS_TUNNEL=""
+[ -n "${JENKINS_TUNNEL}" ] && CMD+=(-tunnel "${JENKINS_TUNNEL}")
+
+[ -v JENKINS_URL ] || JENKINS_URL=""
+[ -n "${JENKINS_URL}" ] && CMD+=(-url "${JENKINS_URL}")
+
+[ -v JENKINS_WEB_SOCKET ] || JENKINS_WEB_SOCKET=""
+case "${JENKINS_WEB_SOCKET,,}" in
+	true ) CMD+=(-webSocket) ;;
+esac
+
+[ -v JENKINS_AGENT_WORKDIR ] || JENKINS_AGENT_WORKDIR=""
+[ -n "${JENKINS_AGENT_WORKDIR}" ] && CMD+=(-workDir "${JENKINS_AGENT_WORKDIR}")
+
+AGENT_DIR="${JENKINS_AGENT_WORKDIR}"
+[ -n "${JENKINS_AGENT_WORKDIR}" ] || AGENT_DIR="$(mktemp -d)"
+
+AGENT_JAR="${AGENT_DIR}/agent.jar"
+
+download-agent "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
+
+set -- "${JAVA_BIN}" ${JENKINS_JAVA_OPTS} -jar "${AGENT_JAR}" "${CMD[@]}"
+
+say "🚀 Executing the command: ${@@Q}"
+exec /configure "${@}"
