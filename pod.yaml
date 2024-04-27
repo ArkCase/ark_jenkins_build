@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: build-worker-XXXXX
+spec:
+  containers:
+  - name: jnlp
+    image: public.ecr.aws/arkcase/jenkins-build:3.2.0
+    imagePullPolicy: Always
+    workingDir: /home/jenkins
+    env:
+    - name: JENKINS_SECRET
+      value: some-secret-string
+    - name: JENKINS_AGENT_NAME
+      value: build-worker-XXXXX
+    - name: JENKINS_NAME
+      value: build-worker-XXXXX
+    - name: JENKINS_AGENT_WORKDIR
+      value: /home/jenkins
+    - name: JENKINS_URL
+      value: https://some.jenkins.url
+    resources:
+      limits:
+        ephemeral-storage: 16Gi
+        memory: 8Gi
+      requests:
+        ephemeral-storage: 16Gi
+        memory: 8Gi
+    volumeMounts:
+    - name: volume-0
+      mountPath: /etc/ssl/certs/java/cacerts
+      subPath: cacerts
+    - name: volume-1
+      mountPath: /etc/ssl/certs/ca-certificates.crt
+      subPath: ca-trusts.pem
+    - name: volume-2
+      mountPath: /cache
+    - name: workspace-volume
+      mountPath: /home/jenkins
+  restartPolicy: Never
+  volumes:
+  - name: volume-0
+    configMap:
+      defaultMode: 420
+      name: ca-trusts
+      optional: false
+  - name: volume-1
+    configMap:
+      defaultMode: 420
+      name: ca-trusts
+      optional: false
+  - name: volume-2
+    emptyDir: {}
+  - name: workspace-volume
+    emptyDir: {}

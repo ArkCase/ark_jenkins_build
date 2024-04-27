@@ -33,7 +33,6 @@ fail()
 
 [ -v JENKINS_JAVA_BIN ] || JENKINS_JAVA_BIN=""
 [ -n "${JENKINS_JAVA_BIN}" ] || JENKINS_JAVA_BIN="java"
-JAVA_BIN="$(type -P "${JENKINS_JAVA_BIN}")" || fail "Could not find the Java binary [${JENKINS_JAVA_BIN}]"
 
 [ -v JENKINS_JAVA_OPTS ] || JENKINS_JAVA_OPTS=""
 [ -n "${JENKINS_JAVA_OPTS}" ] || JENKINS_JAVA_OPTS="${JAVA_OPTS:-}"
@@ -79,7 +78,7 @@ AGENT_JAR="${AGENT_DIR}/agent.jar"
 
 download-agent "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
 
-set -- "${JAVA_BIN}" ${JENKINS_JAVA_OPTS} -jar "${AGENT_JAR}" "${CMD[@]}"
+set -- "${JENKINS_JAVA_BIN}" ${JENKINS_JAVA_OPTS} -jar "${AGENT_JAR}" "${CMD[@]}"
 
 say "🚀 Executing the command: ${@@Q}"
 exec /configure "${@}"
