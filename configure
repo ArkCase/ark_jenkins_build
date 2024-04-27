@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -ou pipefail
+set -eou pipefail
 
 DEBUG="${DEBUG:-false}"
 case "${DEBUG,,}" in
@@ -11,9 +11,21 @@ esac
 LATEST="latest"
 CONFIG=".configure"
 IGNORE=".ignore"
-NO_COW=".no-cow"
 
-CACHE_DIR="/cache"
+[ -v DISABLE_COW ] || DISABLE_COW=""
+[ -n "${DISABLE_COW}" ] || DISABLE_COW="false"
+case "${DISABLE_COW,,}" in
+	true ) DISABLE_COW="true" ;;
+	* ) DISABLE_COW="false" ;;
+esac
+
+[ -v NO_COW_MARKER ] || NO_COW_MARKER=""
+[ -n "${NO_COW_MARKER}" ] || NO_COW_MARKER=".no-cow"
+
+[ -v CACHE_DIR ] || CACHE_DIR=""
+[ -n "${CACHE_DIR}" ] || CACHE_DIR="/cache"
+export CACHE_DIR
+
 TOOL_DIR="/tools"
 
 CONF_DIR="/conf.d"
@@ -29,7 +41,8 @@ case "${SILENT,,}" in
 	* ) SILENT="false" ;;
 esac
 
-cleanup() {
+cleanup()
+{
 	for l in "${GLOBAL_OUTPUT[@]}" ; do
 		echo "${l}"
 	done
@@ -37,8 +50,14 @@ cleanup() {
 	cd .
 }
 
-say() {
-	local OUT="$(echo -ne "${@}")"
+timestamp()
+{
+	date -Ins -u
+}
+
+say()
+{
+	local OUT="$(echo -ne "$(timestamp): ${@}")"
 	if ${SILENT} ; then
 		GLOBAL_OUTPUT+=("${OUT}")
 	else
@@ -46,16 +65,24 @@ say() {
 	fi
 }
 
-err() {
-	say "ERROR: ${@}" 1>&2
+ok()
+{
+	say "✅ ${@}"
 }
 
-fail() {
-	say "${@}" 1>&2
+err()
+{
+	say "❌ ${@}"
+}
+
+fail()
+{
+	err "${@}"
 	exit ${EXIT_CODE:-1}
 }
 
-list_versions() {
+list_versions()
+{
 	local TOOL="${1}"
 
 	# There will be symlinks for major, major-minor, etc... so one doesn't have to enter
@@ -69,7 +96,8 @@ list_versions() {
 	done
 }
 
-configure_tools() {
+configure_tools()
+{
 	# Choose the right tool per environment
 	local ERRORS=()
 	local PATHS=()
@@ -163,7 +191,8 @@ configure_tools() {
 	return 0
 }
 
-sanitize_path() {
+sanitize_path()
+{
 	local OLD_PATH="${@}"
 	local NEW_PATH=""
 	declare -A ENTRIES
@@ -179,12 +208,13 @@ sanitize_path() {
 
 #
 # This next section is meant to provide a means for builds to customize their own copies of the
-# tools and cache directories without affecting the parent versions. However, to make this happen,
+# cache directories without affecting the parent versions. However, to make this happen,
 # we have to employ COW functionality that's only available if the container is run in privileged
 # mode, which is generally not very desirable. Once a decision has been reached to use this,
 # this can be uncommented
 #
-is_privileged_container() {
+is_mount_supported()
+{
 	local T="$(mktemp -d)"
 	/usr/bin/sudo -n /usr/bin/mount -t tmpfs -o size=1M tmpfs "${T}" &>/dev/null
 	local RET=${?}
@@ -193,42 +223,51 @@ is_privileged_container() {
 	return "${RET}"
 }
 
-# Mount an overlay folder for tools and cache?
-export PRIVILEGED="false"
-COWS=("${CACHE_DIR}")
-if is_privileged_container ; then
-	say "Running in privileged mode, creating the COW directories"
-	PRIVILEGED="true"
-	for MOUNTPOINT in "${COWS[@]}"; do
+if ! "${DISABLE_COW}" && is_mount_supported ; then
+
+	# The folders we want to support overlays for ...
+	[ -v COW_MOUNTS ] || COW_MOUNTS=""
+	IFS=":" read -a COW_MOUNTS <<< "${COW_MOUNTS}"
+	COW_MOUNTS=("${CACHE_DIR}" "${COW_MOUNTS[@]}")
+
+	say "⚙️ Mount is supported, creating the COW mounts for: [${COW_MOUNTS[@]@Q}]"
+	for MOUNTPOINT in "${COW_MOUNTS[@]}"; do
 		MOUNTPOINT="$(/usr/bin/readlink -f "${MOUNTPOINT}")"
 
 		# First - does the mountpoint exist?
 		if [ ! -d "${MOUNTPOINT}" ] ; then
-			say "The mountpoint directory [${MOUNTPOINT}] does not exist ... will not create an overlay for it"
+			say "🚫 The mountpoint directory [${MOUNTPOINT}] does not exist ... will not create an overlay for it"
 			continue
 		fi
 
-		[ -f "${MOUNTPOINT}/${NO_COW}" ] && say "The mountpoint [${MOUNTPOINT}] has a ${NO_COW} marker, so the COW infrastructure will not be set up for it" && continue
+		# If it's marked as "no cow", skip it!
+		[ -f "${MOUNTPOINT}/${NO_COW_MARKER}" ] && say "🚫 The mountpoint [${MOUNTPOINT}] has a ${NO_COW_MARKER} marker, so the COW infrastructure will not be set up for it" && continue
 
-		# Second - is this already mounted as an overlay?
+		# If it's already been processed, skip it
+		WORK="${HOME}/.cows/work${MOUNTPOINT}"
+		UPPER="${HOME}/.cows/upper${MOUNTPOINT}"
+		if [ -d "${WORK}" ] || [ -d "${UPPER}" ] ; then
+			say "🚫 There are already work and upper directories for the mountpoint [${MOUNTPOINT}] ... skipping it"
+			continue
+		fi
+
+		# Is it already an overlay of some kind? Don't add another layer...
 		if /usr/bin/sudo -n /usr/bin/findmnt -t overlay -J "${MOUNTPOINT}" &>/dev/null ; then
-			say "The directory [${MOUNTPOINT}] seems to be an overlay, so will not mount another one on top"
+			say "🚫 The directory [${MOUNTPOINT}] seems to be an overlay, so will not mount another one on top"
 			continue
 		fi
 
 		# Ok... we're good to go on the overlay attempt
-		say "Creating the overlay for [${MOUNTPOINT}]..."
+		say "🔩 Creating the overlay for [${MOUNTPOINT}]..."
 
-		WORK="${HOME}/.cows/work${MOUNTPOINT}"
-		[ -d "${WORK}" ] || /usr/bin/mkdir -p "${WORK}" || fail "Failed to create the work directory [${WORK}]"
-
-		UPPER="${HOME}/.cows/upper${MOUNTPOINT}"
-		[ -d "${UPPER}" ] || /usr/bin/mkdir -p "${UPPER}" || fail "Failed to create the upper directory [${UPPER}]"
+		/usr/bin/mkdir -p "${WORK}" || fail "Failed to create the work directory [${WORK}]"
+		/usr/bin/mkdir -p "${UPPER}" || fail "Failed to create the upper directory [${UPPER}]"
 
 		# Mount the overlay using the above values
 		/usr/bin/sudo -n /usr/bin/mount -t overlay overlay \
 			-o lowerdir="${MOUNTPOINT}",upperdir="${UPPER}",workdir="${WORK}" \
 			"${MOUNTPOINT}" || fail "Failed to mount the overlay for [${MOUNTPOINT}]"
+		ok "Overlay ready!"
 	done
 fi
 
@@ -293,7 +332,7 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 	CFG_PARAMS=()
 	CFG_PARAMS_STACK=("${TOOL_VER}" "${TOOL_NAME}")
 	CANDIDATES=("${TOOL_HOME}" "${TOOL_HOME%/*}" "${TOOL_DIR}")
-	(( i = 0 ))
+	(( i = 0 )) || true
 	pushd "${TOOL_HOME}"
 	for CANDIDATE in "${CANDIDATES[@]}" ; do
 		# Clear this flag - needs to be done every iteration
@@ -305,7 +344,7 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 			. "${CFG}" "${CFG_PARAMS[@]}" || fail "Failed to apply the configurations from [${CFG}] for [${CFG_PARAMS[@]}] ..."
 		fi
 		[ ${i} -lt "${#CFG_PARAMS_STACK[@]}" ] && CFG_PARAMS=("${CFG_PARAMS_STACK[${i}]}" "${CFG_PARAMS[@]}")
-		(( i++ ))
+		(( ++i ))
 
 		# If this script wants the parent configuration script(s) to be ignored
 		# it can set the IGNORE_PARENT variable to "true"
@@ -321,22 +360,22 @@ while read CONF ; do
 	CONF_NAME="$(/usr/bin/basename "${CONF}")"
 
 	# If it's not accessible, skip it ...
-	[ -r "${CONF}" ] || { say "Configuration [${CONF_NAME}] is not readable, skipping." ; continue ; }
-	[ -x "${CONF}" ] || { say "Configuration [${CONF_NAME}] is not accessible, skipping." ; continue ; }
+	[ -r "${CONF}" ] || { say "🚫 Configuration [${CONF_NAME}] is not readable, skipping." ; continue ; }
+	[ -x "${CONF}" ] || { say "🚫 Configuration [${CONF_NAME}] is not accessible, skipping." ; continue ; }
 
 	# If it's to be ignored, do so ...
 	[ -e "${CONF}/${IGNORE}" ] && say "Configuration [${CONF_NAME}] is to be ignored, skipping." && continue
 
 	pushd "${CONF}"
-	say "Deploying the configurations from [${CONF_NAME}] into [${HOME}]..."
+	say "⚙️ Deploying the configurations from [${CONF_NAME}] into [${HOME}]..."
 	/usr/bin/tar -C "${HOME}" -xvf <(/usr/bin/tar --exclude "./${CONFIG}" -cf - .)
 	if [ -e "${CONFIG}" ] ; then
 		# The configuration script exists. So execute it
-		say "\tConfiguration [${CONF_NAME}] has a script, sourcing it..."
+		say "\t📝 Configuration [${CONF_NAME}] has a script, sourcing it..."
 		CONFIGURE_SCRIPT="$(readlink -e "${CONFIG}")"
 		[ ${?} -eq 0 ] || fail "Failed to canonicalize the path for [${CONF}/${CONFIG}]"
 		pushd "${HOME}"
-		. "${CONFIGURE_SCRIPT}" || fail "Failed to execute the configuration script for [${CONF_NAME}]"
+		. "${CONFIGURE_SCRIPT}" || fail "Failed to source the configuration script for [${CONF_NAME}]"
 		popd
 	fi
 	popd
@@ -344,7 +383,7 @@ done < <(/usr/bin/find "${CONF_DIR}" -mindepth 1 -maxdepth 1 -type d)
 
 # Allow for initialization scripts to be added
 if [ -d "${INIT_DIR}" ] ; then
-	say "Running initializer scripts in [${INIT_DIR}]..."
+	say "📝 Running initializer scripts in [${INIT_DIR}]..."
 	( cd / && /usr/bin/run-parts --report "${INIT_DIR}" )
 fi
 
@@ -352,8 +391,8 @@ if [ ${#} -gt 0 ] ; then
 	# This cleans up OLDPWD, for security
 	cd .
 
-	say "Launching command: [${@}] ..."
+	say "🚀 Launching command: [${@}] ..."
 	exec "${@}"
 else
-	say "Configuration complete - no command given to run"
+	ok "Configuration complete - no command given to run"
 fi

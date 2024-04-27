@@ -17,7 +17,8 @@ CONTAINER_NAME="${CONTAINER_NAME}-$(date -u +%Y%m%d%H%M%S)"
 [ -v IMAGE_VER ] || IMAGE_VER=""
 [ -n "${IMAGE_VER}" ] || IMAGE_VER="latest"
 
-[ -v IMAGE ] || IMAGE="${IMAGE_REG}/${IMAGE_REPO}:${IMAGE_VER}"
+[ -v IMAGE ] || IMAGE=""
+[ -n "${IMAGE}" ] || IMAGE="${IMAGE_REG}/${IMAGE_REPO}:${IMAGE_VER}"
 
 MOUNTS=()
 for m in cache src ; do
