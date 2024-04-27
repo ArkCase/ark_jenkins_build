@@ -2,11 +2,11 @@
 # Basic Parameters
 #
 ARG PUBLIC_REGISTRY="public.ecr.aws"
-ARG VER="3.1.0"
+ARG VER="3.2.0"
 
 ARG BASE_REG="${PUBLIC_REGISTRY}"
 ARG BASE_REPO="arkcase/jenkins-build-base"
-ARG BASE_VER="1.1.0"
+ARG BASE_VER="1.2.0"
 ARG BASE_IMG="${PUBLIC_REGISTRY}/${BASE_REPO}:${BASE_VER}"
 
 FROM "${BASE_IMG}"
@@ -43,12 +43,6 @@ COPY --chown=root:root configure entrypoint /
 RUN chmod 0755 /configure /entrypoint
 
 #
-# Add the default initializers & configurators managed at this level
-#
-COPY --chown=root:root init.d /init.d
-COPY --chown=root:root conf.d /conf.d
-
-#
 # Add any tools managed at this level
 #
 ADD --chown=root:root tools /tools
@@ -57,12 +51,6 @@ ADD --chown=root:root tools /tools
 # Install all the scripts that are used during builds
 #
 COPY --chown=root:root scripts/ /usr/local/bin
-
-#
-# Add the SSL trusts
-#
-COPY --chown=root:root ssl-trusts/ /usr/local/share/ca-certificates/
-RUN /usr/sbin/update-ca-certificates
 
 #
 # Fall back down to the actual user

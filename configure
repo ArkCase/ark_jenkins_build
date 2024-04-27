@@ -12,6 +12,9 @@ LATEST="latest"
 CONFIG=".configure"
 IGNORE=".ignore"
 
+# This one is NOT configurable to leverage the tools baked into the image
+TOOL_DIR="/tools"
+
 [ -v DISABLE_COW ] || DISABLE_COW=""
 [ -n "${DISABLE_COW}" ] || DISABLE_COW="false"
 case "${DISABLE_COW,,}" in
@@ -19,6 +22,9 @@ case "${DISABLE_COW,,}" in
 	* ) DISABLE_COW="false" ;;
 esac
 
+#
+# All these others, however, are configurable
+#
 [ -v NO_COW_MARKER ] || NO_COW_MARKER=""
 [ -n "${NO_COW_MARKER}" ] || NO_COW_MARKER=".no-cow"
 
@@ -26,10 +32,11 @@ esac
 [ -n "${CACHE_DIR}" ] || CACHE_DIR="/cache"
 export CACHE_DIR
 
-TOOL_DIR="/tools"
+[ -v CONF_DIR ] || CONF_DIR=""
+[ -n "${CONF_DIR}" ] || CONF_DIR="/conf.d"
 
-CONF_DIR="/conf.d"
-INIT_DIR="/init.d"
+[ -v INIT_DIR ] || INIT_DIR=""
+[ -n "${INIT_DIR}" ] || INIT_DIR="/init.d"
 
 trap cleanup EXIT
 
@@ -223,6 +230,22 @@ is_mount_supported()
 	return "${RET}"
 }
 
+#
+# If the cache directory doesn't exist, create it!
+#
+if [ ! -d "${CACHE_DIR}" ] ; then
+	say "📁 The cache directory [${CACHE_DIR}] does not exist ... creating it!"
+	/usr/bin/sudo -n /usr/bin/mkdir -p "${CACHE_DIR}" || fail "Could not create the cache directory [${CACHE_DIR}]"
+	/usr/bin/sudo -n /usr/bin/chown -R "$(id -u):$(id -g)" "${CACHE_DIR}" || fail "Could not set the ownership for the cache directory"
+	/usr/bin/sudo -n /usr/bin/chmod -R ug=rwX,o= "${CACHE_DIR}" || fail "Could not set the permissions for the cache directory"
+fi
+
+#
+# This is a sneaky, sneaky trick we're using to enable us to mount shared filesystems,
+# but also avoid having them be modified directly by the containers, such that the
+# containers can still make modifications, but other containers won't (shouldn't) see
+# them until they're eventually propagated upwards to the source by some other means.
+#
 if ! "${DISABLE_COW}" && is_mount_supported ; then
 
 	# The folders we want to support overlays for ...

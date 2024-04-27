@@ -37,14 +37,18 @@ done
 [ -v NODE_VERSION ] || NODE_VERSION=""
 [ -n "${NODE_VERSION}" ] || NODE_VERSION="16.14"
 
-set -x
-exec /usr/bin/docker run \
-	--privileged \
-	--rm -it \
-	--name "${CONTAINER_NAME}" \
-	--hostname "${CONTAINER_NAME}" \
-	"${MOUNTS[@]}" \
-	-e JAVA="${JAVA_VERSION}" \
-	-e NODE="${NODE_VERSION}" \
-	-e DEBUG="${DEBUG:-false}" \
-	"${IMAGE}" "${@}"
+CMD=(
+	/usr/bin/docker run
+		--privileged
+		--rm -it
+		--name "${CONTAINER_NAME}"
+		--hostname "${CONTAINER_NAME}"
+		"${MOUNTS[@]}"
+		-e JAVA="${JAVA_VERSION}"
+		-e NODE="${NODE_VERSION}"
+		-e DEBUG="${DEBUG:-false}"
+		"${IMAGE}" "${@}"
+)
+
+echo -e "Launching: ${CMD[@]@Q}"
+exec "${CMD[@]}"
