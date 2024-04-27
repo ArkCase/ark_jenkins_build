@@ -252,7 +252,7 @@ fi
 	say "🔨 Setting ownership..."
 	/usr/bin/sudo -n /usr/bin/chown -R "$(id -u):$(id -g)" "${CACHE_DIR}" || fail "Could not set the ownership for the cache directory"
 	say "🛡️ Setting permissions..."
-	/usr/bin/sudo -n /usr/bin/chmod -R ug=rwX,o= "${CACHE_DIR}" || fail "Could not set the permissions for the cache directory"
+	chmod -R ug=rwX,o= "${CACHE_DIR}" || fail "Could not set the permissions for the cache directory"
 	ok "Cache permissions fixed!"
 ) || exit ${?}
 

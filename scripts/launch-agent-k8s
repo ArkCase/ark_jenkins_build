@@ -69,7 +69,8 @@ esac
 CMD+=(-workDir "${JENKINS_AGENT_WORKDIR}")
 
 [ -d "${JENKINS_AGENT_WORKDIR}" ] || mkdir -p "${JENKINS_AGENT_WORKDIR}" || fail "Failed to create the work directory at [${JENKINS_AGENT_WORKDIR}]"
-sudo chown -R "${JENKINS_AGENT_WORKDIR}" || fail "Failed to take ownership of the work directory at [${JENKINS_AGENT_WORKDIR}]"
+/usr/bin/sudo /usr/bin/chown -R "$(id -u):$(id -g)" "${JENKINS_AGENT_WORKDIR}" || fail "Failed to take ownership of the work directory at [${JENKINS_AGENT_WORKDIR}]"
+/usr/bin/chmod -R ug=rwX,o= "${JENKINS_AGENT_WORKDIR}" || fail "Failed to set the permissions for the work directory at [${JENKINS_AGENT_WORKDIR}]"
 
 AGENT_DIR="${JENKINS_AGENT_WORKDIR}"
 [ -n "${JENKINS_AGENT_WORKDIR}" ] || AGENT_DIR="$(mktemp -d)"
