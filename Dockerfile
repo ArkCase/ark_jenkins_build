@@ -34,7 +34,7 @@ RUN apt-get update && \
 # Add the sudo configuration for the build group
 #
 COPY --chown=root:root 00-build /etc/sudoers.d
-RUN chmod 0640 /etc/sudoers.d/00-builder
+RUN chmod 0640 /etc/sudoers.d/00-build
 
 #
 # Add the configure and entrypoint scripts
