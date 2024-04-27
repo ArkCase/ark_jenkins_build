@@ -2,11 +2,11 @@
 # Basic Parameters
 #
 ARG PUBLIC_REGISTRY="public.ecr.aws"
-ARG VER="3.0.0"
+ARG VER="3.1.0"
 
 ARG BASE_REG="${PUBLIC_REGISTRY}"
 ARG BASE_REPO="arkcase/jenkins-build-base"
-ARG BASE_VER="1.0.4"
+ARG BASE_VER="1.1.0"
 ARG BASE_IMG="${PUBLIC_REGISTRY}/${BASE_REPO}:${BASE_VER}"
 
 FROM "${BASE_IMG}"
@@ -34,7 +34,7 @@ RUN apt-get update && \
 # Add the sudo configuration for the build group
 #
 COPY --chown=root:root 00-build /etc/sudoers.d
-RUN chmod 0640 /etc/sudoers.d/00-build
+RUN chmod 0640 /etc/sudoers.d/00-builder
 
 #
 # Add the configure and entrypoint scripts

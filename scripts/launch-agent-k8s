@@ -66,7 +66,11 @@ case "${JENKINS_WEB_SOCKET,,}" in
 esac
 
 [ -v JENKINS_AGENT_WORKDIR ] || JENKINS_AGENT_WORKDIR=""
-[ -n "${JENKINS_AGENT_WORKDIR}" ] && CMD+=(-workDir "${JENKINS_AGENT_WORKDIR}")
+[ -n "${JENKINS_AGENT_WORKDIR}" ] || JENKINS_AGENT_WORKDIR="${HOME}"
+CMD+=(-workDir "${JENKINS_AGENT_WORKDIR}")
+
+[ -d "${JENKINS_AGENT_WORKDIR}" ] || mkdir -p "${JENKINS_AGENT_WORKDIR}" || fail "Failed to create the work directory at [${JENKINS_AGENT_WORKDIR}]"
+sudo chown -R "${JENKINS_AGENT_WORKDIR}" || fail "Failed to take ownership of the work directory at [${JENKINS_AGENT_WORKDIR}]"
 
 AGENT_DIR="${JENKINS_AGENT_WORKDIR}"
 [ -n "${JENKINS_AGENT_WORKDIR}" ] || AGENT_DIR="$(mktemp -d)"
