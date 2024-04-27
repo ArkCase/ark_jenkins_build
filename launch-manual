@@ -20,6 +20,14 @@ CONTAINER_NAME="${CONTAINER_NAME}-$(date -u +%Y%m%d%H%M%S)"
 [ -v IMAGE ] || IMAGE=""
 [ -n "${IMAGE}" ] || IMAGE="${IMAGE_REG}/${IMAGE_REPO}:${IMAGE_VER}"
 
+[ -v PRIVILEGED ] || PRIVILEGED=""
+[ -n "${PRIVILEGED}" ] || PRIVILEGED="true"
+
+case "${PRIVILEGED}" in
+	true ) PRIVILEGED=(--privileged) ;;
+	* ) PRIVILEGED=() ;;
+esac
+
 MOUNTS=()
 for m in cache src ; do
 	M="${BASEDIR}/${m}"
@@ -38,11 +46,10 @@ done
 [ -n "${NODE_VERSION}" ] || NODE_VERSION="16.14"
 
 CMD=(
-	/usr/bin/docker run
-		--privileged
-		--rm -it
+	/usr/bin/docker run --rm -it
 		--name "${CONTAINER_NAME}"
 		--hostname "${CONTAINER_NAME}"
+		"${PRIVILEGED[@]}"
 		"${MOUNTS[@]}"
 		-e JAVA="${JAVA_VERSION}"
 		-e NODE="${NODE_VERSION}"
