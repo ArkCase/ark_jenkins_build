@@ -133,7 +133,7 @@ say "👉 Retrieving the detailed report XML for BUILD_ID = [${VERACODE_BUILD_ID
 TARGET_XML="${TARGET_BASE}.xml"
 veracode -action DetailedReport -buildid "${VERACODE_BUILD_ID}" -format xml -outputfilepath "${TARGET_XML}" || fail "Failed to retrieve the detailed report XML"
 read SUM REST < <(sha256sum "${TARGET_XML}")
-BYTES="$("${STAT}" -c "%s" "${TARGET_XML}")"
+BYTES="$(stat -c "%s" "${TARGET_XML}")"
 say "\t✅ Detailed report XML retrieved as [${TARGET_XML}] (size $(printf "%'d" "${BYTES}") bytes, checksum = ${SUM})"
 
 # Get detailed report as PDF
@@ -141,7 +141,7 @@ TARGET_PDF="${TARGET_BASE}.pdf"
 say "👉 Retrieving the detailed report PDF for BUILD_ID = [${VERACODE_BUILD_ID}]..."
 veracode -action DetailedReport -buildid "${VERACODE_BUILD_ID}" -format pdf -outputfilepath "${TARGET_PDF}" || fail "Failed to retrieve the detailed report PDF"
 read SUM REST < <(sha256sum "${TARGET_PDF}")
-BYTES="$("${STAT}" -c "%s" "${TARGET_PDF}")"
+BYTES="$(stat -c "%s" "${TARGET_PDF}")"
 say "\t✅ Detailed report PDF retrieved as [${TARGET_PDF}] (size $(printf "%'d" "${BYTES}") bytes, checksum = ${SUM})"
 
 SCAN_SCORE="$(xmlstarlet sel -N "dr=https://www.veracode.com/schema/reports/export/1.0" -t -v "/dr:detailedreport/dr:static-analysis/@score" < "${TARGET_XML}")"
