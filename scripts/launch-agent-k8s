@@ -16,6 +16,11 @@ ok()
 	say "✅ ${@}"
 }
 
+warn()
+{
+	say "⚠️ ${@}"
+}
+
 err()
 {
 	say "❌ ${@}"
@@ -80,6 +85,16 @@ AGENT_JAR="${AGENT_DIR}/agent.jar"
 download-agent "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
 
 set -- "${JENKINS_JAVA_BIN}" ${JENKINS_JAVA_OPTS} -jar "${AGENT_JAR}" "${CMD[@]}"
+
+[ -v JENKINS_AGENT_TEST ] || JENKINS_AGENT_TEST=""
+case "${JENKINS_AGENT_TEST,,}" in
+	"true" )
+		JENKINS_AGENT_TEST="true"
+		warn "Test mode active - old command: [${@@Q}]"
+		set -- "/usr/bin/sleep" "infinity"
+		;;
+	* ) JENKINS_AGENT_TEST="false" ;;
+esac
 
 say "🚀 Executing the command: ${@@Q}"
 exec /configure "${@}"
