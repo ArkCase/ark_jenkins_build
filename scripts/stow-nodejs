@@ -47,4 +47,14 @@ STOW_PREFIX="${STOW_URL}"
 npm config set "${SCOPE}:registry=${STOW_URL}"
 npm config set "${STOW_PREFIX}:_auth=${STOW_AUTH}"
 
+#
+# Temporary fix to get lerna working again
+#
+__NODE_MODULES="${WORKSPACE}/node_modules"
+if [ -d "${__NODE_MODULES}" ] ; then
+	export PATH="${__NODE_MODULES}/.bin:${PATH}"
+	export NODE_PATH="${__NODE_MODULES}:${NODE_PATH}"
+fi
+unset __NODE_MODULES
+
 exec lerna exec -- "npm publish --scope=${SCOPE}"
