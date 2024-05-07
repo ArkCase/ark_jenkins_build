@@ -2,11 +2,11 @@
 # Basic Parameters
 #
 ARG PUBLIC_REGISTRY="public.ecr.aws"
-ARG VER="3.2.2"
+ARG VER="3.3.0"
 
 ARG BASE_REG="${PUBLIC_REGISTRY}"
 ARG BASE_REPO="arkcase/jenkins-build-base"
-ARG BASE_VER="1.2.0"
+ARG BASE_VER="1.3.0"
 ARG BASE_IMG="${PUBLIC_REGISTRY}/${BASE_REPO}:${BASE_VER}"
 
 FROM "${BASE_IMG}"
@@ -46,6 +46,12 @@ RUN chmod 0755 /configure /entrypoint
 # Add any tools managed at this level
 #
 ADD --chown=root:root tools /tools
+
+#
+# Add the default initializers & configurators
+#
+COPY --chown=root:root init.d /init.d
+COPY --chown=root:root conf.d /conf.d
 
 #
 # Install all the scripts that are used during builds
