@@ -7,8 +7,8 @@ set -euo pipefail
 [ -v DOWNSCALE_TIMEOUT ] || DOWNSCALE_TIMEOUT=""
 [ -n "${DOWNSCALE_TIMEOUT}" ] || DOWNSCALE_TIMEOUT="20m"
 
-[ -v DOWNSCALE_RETRY_WAIT ] || DOWNSCALE_RETRY_WAIT=""
-[ -n "${DOWNSCALE_RETRY_WAIT}" ] || DOWNSCALE_RETRY_WAIT="15s"
+[ -v POD_WAIT_TIMEOUT ] || POD_WAIT_TIMEOUT=""
+[ -n "${POD_WAIT_TIMEOUT}" ] || POD_WAIT_TIMEOUT="5m"
 
 [ -v DISABLE_DOWNSCALE ] || DISABLE_DOWNSCALE=""
 case "${DISABLE_DOWNSCALE,,}" in
@@ -178,6 +178,7 @@ timestr_to_secs()
 wait_for_pods_to_die()
 {
 	local ELEMENT="${1}"
+	local TIMEOUT="${2}"
 
 	local JSON=""
 	JSON="$(kubectl get "${ELEMENT}" -o json)" || return ${?}
@@ -187,9 +188,11 @@ wait_for_pods_to_die()
 	LABELS="$(jq -r "${JQ_EXPR}" <<< "${JSON}" | tr '\n' ',' | sed -e 's;,$;;g')" || return ${?}
 	[ -n "${LABELS}" ] || return 1
 
+	local TIMEOUT_STR="$(secs_to_timestr "${TIMEOUT}")"
+
 	# Wait for up to 5 minutes
-	say "💤 Waiting up to 5m for the pods from ${ELEMENT} to die..."
-	execute kubectl wait --for=delete pods -l "${LABELS}" --timeout 5m
+	say "💤 Waiting up to ${TIMEOUT_STR} for the pods from ${ELEMENT} to die..."
+	execute kubectl wait --for=delete pods -l "${LABELS}" --timeout "${TIMEOUT_STR}"
 }
 
 usage()
@@ -201,7 +204,7 @@ usage()
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
 DOWNSCALE_TIMEOUT=$(timestr_to_secs "${DOWNSCALE_TIMEOUT}") || fail "Invalid value for DOWNSCALE_TIMEOUT: [${DOWNSCALE_TIMEOUT}]"
-DOWNSCALE_RETRY_WAIT=$(timestr_to_secs "${DOWNSCALE_RETRY_WAIT}") || fail "Invalid value for DOWNSCALE_RETRY_WAIT: [${DOWNSCALE_RETRY_WAIT}]"
+POD_WAIT_TIMEOUT=$(timestr_to_secs "${POD_WAIT_TIMEOUT}") || fail "Invalid value for POD_WAIT_TIMEOUT: [${POD_WAIT_TIMEOUT}]"
 
 if [ ${#} -eq 1 ] ; then
 	NAMESPACE="$(kubectl config view --minify -o jsonpath="{..namespace}")"
@@ -233,13 +236,12 @@ if ! execute kubectl scale "${ELEMENTS[@]}" --namespace "${NAMESPACE}" --replica
 fi
 
 ok "Downscale requested!"
-say "⌛ Waiting for the downscale to complete (up to ${DOWNSCALE_TIMEOUT_STR} total)..."
 DOWNSCALE_TIMEOUT_STR="$(secs_to_timestr "${DOWNSCALE_TIMEOUT}")"
-DOWNSCALE_RETRY_WAIT_STR="$(secs_to_timestr "${DOWNSCALE_RETRY_WAIT}")"
 START="$(date +%s)"
 # Wait for all pops related to the given elements to disappear ...
+say "⌛ Waiting for the downscale to complete (up to ${DOWNSCALE_TIMEOUT_STR} total)..."
 for E in "${ELEMENTS[@]}" ; do
-	wait_for_pods_to_die "${E}" || warn "Failed to wait for the pods to disappear for ${E}"
+	wait_for_pods_to_die "${E}" "${POD_WAIT_TIMEOUT}" || warn "Failed to wait for the pods to disappear for ${E}"
 
 	# There are still some ... have we timed out yet?
 	NOW="$(date +%s)"
@@ -251,14 +253,10 @@ for E in "${ELEMENTS[@]}" ; do
 	# that it also doesn't exceed our expected timeout
 	(( REMAINING = DOWNSCALE_TIMEOUT - DIFF )) || true
 	[ ${REMAINING} -gt 0 ] || fail "Timed out waiting for ${E} instances to scale down to 0"
-	if [ ${REMAINING} -lt ${DOWNSCALE_RETRY_WAIT} ] ; then
+	if [ ${REMAINING} -lt ${POD_WAIT_TIMEOUT} ] ; then
 		# This will be our last wait, so just wait for however
 		# long the timeout is remaining and try one last time
-		DOWNSCALE_RETRY_WAIT=${REMAINING}
-		DOWNSCALE_RETRY_WAIT_STR="$(secs_to_timestr "${DOWNSCALE_RETRY_WAIT}")"
+		POD_WAIT_TIMEOUT=${REMAINING}
 	fi
-
-	say "💤 Will wait ${DOWNSCALE_RETRY_WAIT_STR} before the next attempt..."
-	sleep ${DOWNSCALE_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
 done
 ok "Downscale complete!"
