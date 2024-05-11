@@ -14,13 +14,6 @@ case "${DISABLE_UNDEPLOY,,}" in
 esac
 export DISABLE_UNDEPLOY
 
-[ -v DISABLE_DOWNSCALE ] || DISABLE_DOWNSCALE=""
-case "${DISABLE_DOWNSCALE,,}" in
-	true | t | yes | y ) DISABLE_DOWNSCALE="true" ;;
-	* ) DISABLE_DOWNSCALE="false" ;;
-esac
-export DISABLE_DOWNSCALE
-
 timestamp()
 {
 	date -Ins -u
@@ -99,22 +92,6 @@ is_namespace_exists()
 	return 0
 }
 
-wait_for_pods_to_die()
-{
-	local ELEMENT="${1}"
-
-	local JSON=""
-	JSON="$(kubectl get "${ELEMENT}" -o json)" || return ${?}
-
-	local JQ_EXPR='.spec.selector.matchLabels | keys[] as $k | "\($k)=\(.[$k])"'
-	local LABELS=""
-	LABELS="$(jq -r "${JQ_EXPR}" <<< "${JSON}" | tr '\n' ',' | sed -e 's;,$;;g')" || return ${?}
-	[ -n "${LABELS}" ] || return 1
-
-	# Wait for up to 5 minutes
-	execute kubectl wait --for=delete pods -l "${LABELS}" --timeout 5m
-}
-
 usage()
 {
 	echo -e "usage: ${BASH_SOURCE:-${0}} [namespace] release" 1>&2
@@ -146,25 +123,8 @@ if ! should_uninstall "${NAMESPACE}" "${RELEASE}" ; then
 	exit 0
 fi
 
-if ! "${DISABLE_DOWNSCALE}" ; then
-	#
-	# Before we uninstall, we will scale down all Deployments and StatefulSets to 0
-	# replicas, in hopes that this will help things along in terms of volume assignment
-	# and whatnot
-	#
-	warn "Downscaling pod controller elements prior to uninstallation"
-	readarray -t ELEMENTS < <(kubectl get statefulset -o name && kubectl get deployment -o name)
-	if [ "${#ELEMENTS[@]}" -gt 0 ] ; then
-		if execute kubectl scale "${ELEMENTS[@]}" --replicas 0 ; then
-			# Wait for all popds related to the given elements to disappear ...
-			for E in "${ELEMENTS[@]}" ; do
-				wait_for_pods_to_die "${E}" || warn "Failed to wait for the pods to disappear for ${E}"
-			done
-		else
-			warn "Failed to scale down the pod controller elements"
-		fi
-	fi
-fi
+# Try to downscale first...
+DISABLE_DOWNSCALE="${DISABLE_UNDEPLOY}" "${BASEDIR}/downscale-environment" "${NAMESPACE}" "${RELEASE}" || exit ${?}
 
 # Delete the old installation, since it's the safest bet to ensure
 # that the correct resources, containers, and deployments are used

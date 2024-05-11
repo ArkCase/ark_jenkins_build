@@ -175,18 +175,21 @@ timestr_to_secs()
 	return 0
 }
 
-list_remaining()
+wait_for_pods_to_die()
 {
-	local NAMESPACE="${1}"
-	local RELEASE="${2}"
+	local ELEMENT="${1}"
 
-	kubectl \
-		get statefulsets.apps \
-		--namespace "${NAMESPACE}" \
-		--selector="app.kubernetes.io/instance=${RELEASE}" \
-		-o json | \
-		jq -r '.items[] | select(.status.replicas > 0) | .metadata.name' | \
-		sort -u
+	local JSON=""
+	JSON="$(kubectl get "${ELEMENT}" -o json)" || return ${?}
+
+	local JQ_EXPR='.spec.selector.matchLabels | keys[] as $k | "\($k)=\(.[$k])"'
+	local LABELS=""
+	LABELS="$(jq -r "${JQ_EXPR}" <<< "${JSON}" | tr '\n' ',' | sed -e 's;,$;;g')" || return ${?}
+	[ -n "${LABELS}" ] || return 1
+
+	# Wait for up to 5 minutes
+	say "💤 Waiting up to 5m for the pods from ${ELEMENT} to die..."
+	execute kubectl wait --for=delete pods -l "${LABELS}" --timeout 5m
 }
 
 usage()
@@ -217,40 +220,37 @@ is_deployed "${NAMESPACE}" "${RELEASE}" || fail "The release [${RELEASE}] is not
 
 # Delete any prior test pods
 # NOTE: the timeout is PER ITEM, not total...
-doing "Downscaling the existing StatefulSet instances"
-execute \
-	kubectl scale statefulset \
-		--namespace "${NAMESPACE}" \
-		--replicas=0 \
-		--selector="app.kubernetes.io/instance=${RELEASE}" && \
-	ok "Downscale requested!" || \
-	warn "Failed to downscale any StatefulSet instances"
+readarray -t ELEMENTS < <(kubectl get statefulset -o name && kubectl get deployment -o name)
+if [ "${#ELEMENTS[@]}" -le 0 ] ; then
+	say "👀 There are no StatefulSets or Deployments to downscale"
+	exit 0
+fi
 
+doing "Downscaling the existing StatefulSet and Deployment instances"
+if ! execute kubectl scale "${ELEMENTS[@]}" --namespace "${NAMESPACE}" --replicas=0 ; then
+	warn "Failed to downscale the StatefulSet and Deployment instances"
+	exit 1
+fi
+
+ok "Downscale requested!"
+say "⌛ Waiting for the downscale to complete (up to ${DOWNSCALE_TIMEOUT_STR} total)..."
 DOWNSCALE_TIMEOUT_STR="$(secs_to_timestr "${DOWNSCALE_TIMEOUT}")"
 DOWNSCALE_RETRY_WAIT_STR="$(secs_to_timestr "${DOWNSCALE_RETRY_WAIT}")"
-say "⌛ Waiting for the downscale to complete (up to ${DOWNSCALE_TIMEOUT_STR} total)..."
 START="$(date +%s)"
-while true ; do
-
-	# Get the StatefulSets that are still waiting to downscale
-	say "👀 Looking for any remaining StatefulSet instances that haven't scaled down yet..."
-	REMAINING=( $(list_remaining "${NAMESPACE}" "${RELEASE}") )
-
-	# If there are no more, we're done!
-	[ ${#REMAINING[@]} -gt 0 ] || break
-
-	warn "There are ${#REMAINING[@]} StatefulSet instances: [ ${REMAINING[@]} ]"
+# Wait for all pops related to the given elements to disappear ...
+for E in "${ELEMENTS[@]}" ; do
+	wait_for_pods_to_die "${E}" || warn "Failed to wait for the pods to disappear for ${E}"
 
 	# There are still some ... have we timed out yet?
 	NOW="$(date +%s)"
 	(( DIFF = ( NOW - START ) )) || true
-	[ ${DIFF} -lt ${DOWNSCALE_TIMEOUT} ] || fail "Timed out waiting for the StatefulSet instances to scale down to 0"
+	[ ${DIFF} -lt ${DOWNSCALE_TIMEOUT} ] || fail "Timed out waiting for ${E} to scale down to 0"
 
 	# Make sure our wait doesn't put us overbudget on the total wait
 	# time period, and make sure that if we have to wait one last time,
 	# that it also doesn't exceed our expected timeout
 	(( REMAINING = DOWNSCALE_TIMEOUT - DIFF )) || true
-	[ ${REMAINING} -gt 0 ] || fail "Timed out waiting for the StatefulSet instances to scale down to 0"
+	[ ${REMAINING} -gt 0 ] || fail "Timed out waiting for ${E} instances to scale down to 0"
 	if [ ${REMAINING} -lt ${DOWNSCALE_RETRY_WAIT} ] ; then
 		# This will be our last wait, so just wait for however
 		# long the timeout is remaining and try one last time
@@ -261,5 +261,4 @@ while true ; do
 	say "💤 Will wait ${DOWNSCALE_RETRY_WAIT_STR} before the next attempt..."
 	sleep ${DOWNSCALE_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
 done
-
 ok "Downscale complete!"
