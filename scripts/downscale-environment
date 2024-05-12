@@ -199,7 +199,6 @@ list_scalable_items()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	local TYPE="${3}"
 
 	local TYPES=(statefulset deployment)
 
