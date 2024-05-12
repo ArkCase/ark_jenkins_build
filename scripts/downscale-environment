@@ -177,11 +177,12 @@ timestr_to_secs()
 
 wait_for_pods_to_die()
 {
-	local ELEMENT="${1}"
-	local TIMEOUT="${2}"
+	local NAMESPACE="${1}"
+	local ELEMENT="${2}"
+	local TIMEOUT="${3}"
 
 	local JSON=""
-	JSON="$(kubectl get "${ELEMENT}" -o json)" || return ${?}
+	JSON="$(kubectl --namespace "${NAMESPACE}" get "${ELEMENT}" --output json)" || return ${?}
 
 	local JQ_EXPR='.spec.selector.matchLabels | keys[] as $k | "\($k)=\(.[$k])"'
 	local LABELS=""
@@ -192,7 +193,7 @@ wait_for_pods_to_die()
 
 	# Wait for up to 5 minutes
 	say "💤 Waiting up to ${TIMEOUT_STR} for the pods from ${ELEMENT} to die..."
-	execute kubectl wait --for=delete pods -l "${LABELS}" --timeout "${TIMEOUT_STR}"
+	execute kubectl --namespace "${NAMESPACE}" wait --for=delete pods --selector "${LABELS}" --timeout "${TIMEOUT_STR}"
 }
 
 list_scalable_items()
@@ -223,7 +224,7 @@ DOWNSCALE_TIMEOUT=$(timestr_to_secs "${DOWNSCALE_TIMEOUT}") || fail "Invalid val
 POD_WAIT_TIMEOUT=$(timestr_to_secs "${POD_WAIT_TIMEOUT}") || fail "Invalid value for POD_WAIT_TIMEOUT: [${POD_WAIT_TIMEOUT}]"
 
 if [ ${#} -eq 1 ] ; then
-	NAMESPACE="$(kubectl config view --minify -o jsonpath="{..namespace}")"
+	NAMESPACE="$(kubectl config view --minify --output jsonpath="{..namespace}")"
 	[ -n "${NAMESPACE}" ] || NAMESPACE="default"
 else
 	NAMESPACE="${1}"
@@ -246,7 +247,7 @@ if [ ${#ELEMENTS[@]} -le 0 ] ; then
 fi
 
 doing "Downscaling the ${#ELEMENTS[@]} existing scalable resources..."
-execute kubectl scale "${ELEMENTS[@]}" --namespace "${NAMESPACE}" --replicas=0 || fail "Failed to downscale the scalable resources!"
+execute kubectl scale "${ELEMENTS[@]}" --namespace "${NAMESPACE}" --replicas 0 || fail "Failed to downscale the scalable resources!"
 
 ok "Downscale requested!"
 DOWNSCALE_TIMEOUT_STR="$(secs_to_timestr "${DOWNSCALE_TIMEOUT}")"
@@ -254,7 +255,7 @@ START="$(date +%s)"
 # Wait for all pops related to the given elements to disappear ...
 say "⌛ Waiting for the downscale to complete (up to ${DOWNSCALE_TIMEOUT_STR} total)..."
 for E in "${ELEMENTS[@]}" ; do
-	wait_for_pods_to_die "${E}" "${POD_WAIT_TIMEOUT}" || warn "Failed to wait for the pods to disappear for ${E}"
+	wait_for_pods_to_die "${NAMESPACE}" "${E}" "${POD_WAIT_TIMEOUT}" || warn "Failed to wait for the pods to disappear for ${E}"
 
 	# There are still some ... have we timed out yet?
 	NOW="$(date +%s)"
