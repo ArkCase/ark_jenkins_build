@@ -195,6 +195,23 @@ wait_for_pods_to_die()
 	execute kubectl wait --for=delete pods -l "${LABELS}" --timeout "${TIMEOUT_STR}"
 }
 
+list_scalable_items()
+{
+	local NAMESPACE="${1}"
+	local RELEASE="${2}"
+	local TYPE="${3}"
+
+	local TYPES=(statefulset deployment)
+
+	for TYPE in "${TYPES[@]}" ; do
+		kubectl \
+			get "${TYPE}" \
+			--namespace "${NAMESPACE}" \
+			--selector "app.kubernetes.io/instance=${RELEASE}" \
+			--output name
+	done | sort -u
+}
+
 usage()
 {
 	echo -e "usage: ${BASH_SOURCE:-${0}} [namespace] release" 1>&2
@@ -223,17 +240,14 @@ is_deployed "${NAMESPACE}" "${RELEASE}" || fail "The release [${RELEASE}] is not
 
 # Delete any prior test pods
 # NOTE: the timeout is PER ITEM, not total...
-readarray -t ELEMENTS < <(kubectl get statefulset -o name && kubectl get deployment -o name)
-if [ "${#ELEMENTS[@]}" -le 0 ] ; then
-	say "👀 There are no StatefulSets or Deployments to downscale"
+readarray -t ELEMENTS < <(list_scalable_items "${NAMESPACE}" "${RELEASE}")
+if [ ${#ELEMENTS[@]} -le 0 ] ; then
+	say "👀 There are no scalable resources to downscale"
 	exit 0
 fi
 
-doing "Downscaling the existing StatefulSet and Deployment instances"
-if ! execute kubectl scale "${ELEMENTS[@]}" --namespace "${NAMESPACE}" --replicas=0 ; then
-	warn "Failed to downscale the StatefulSet and Deployment instances"
-	exit 1
-fi
+doing "Downscaling the ${#ELEMENTS[@]} existing scalable resources..."
+execute kubectl scale "${ELEMENTS[@]}" --namespace "${NAMESPACE}" --replicas=0 || fail "Failed to downscale the scalable resources!"
 
 ok "Downscale requested!"
 DOWNSCALE_TIMEOUT_STR="$(secs_to_timestr "${DOWNSCALE_TIMEOUT}")"
