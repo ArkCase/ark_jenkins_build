@@ -1,56 +1,53 @@
-apiVersion: v1
-kind: Pod
+apiVersion: "v1"
+kind: "Pod"
 metadata:
-  name: build-worker-test
+  name: "test-build-worker"
+  namespace: "jenkins"
 spec:
   containers:
-  - name: jnlp
-    command: [ "sleep", "infinity" ]
-    image: public.ecr.aws/arkcase/jenkins-build:3.2.1
-    imagePullPolicy: Always
-    workingDir: /home/jenkins
-    env:
-    - name: JENKINS_SECRET
-      value: some-secret-string
-    - name: JENKINS_AGENT_NAME
-      value: build-worker-test
-    - name: JENKINS_NAME
-      value: build-worker-test
-    - name: JENKINS_AGENT_WORKDIR
-      value: /home/jenkins
-    - name: JENKINS_URL
-      value: https://some.jenkins.url
-    resources:
-      limits:
-        ephemeral-storage: 16Gi
-        memory: 8Gi
-      requests:
-        ephemeral-storage: 16Gi
-        memory: 8Gi
-    volumeMounts:
-    - name: volume-0
-      mountPath: /etc/ssl/certs/java/cacerts
-      subPath: cacerts
-    - name: volume-1
-      mountPath: /etc/ssl/certs/ca-certificates.crt
-      subPath: ca-trusts.pem
-    - name: volume-2
-      mountPath: /cache
-    - name: workspace-volume
-      mountPath: /home/jenkins
-  restartPolicy: Never
+    - name: "jnlp"
+      image: "harbor.armedia.net/arkcase-marketplace-cache/arkcase/jenkins-build:3.3.10"
+      imagePullPolicy: "Always"
+      command: [ "sleep", "infinity" ]
+      workingDir: "/home/jenkins"
+      env:
+        - name: "JAVA"
+          value: "11"
+        - name: "NODE"
+          value: "16.14"
+      resources:
+        limits:
+          memory: "8Gi"
+          ephemeral-storage: "16Gi"
+        requests:
+          memory: "8Gi"
+      volumeMounts:
+        - mountPath: "/etc/ssl/certs/ca-certificates.crt"
+          name: "volume-1"
+          readOnly: false
+          subPath: "ca-trusts.pem"
+        - mountPath: "/etc/ssl/certs/java/cacerts"
+          name: "volume-0"
+          readOnly: false
+          subPath: "cacerts"
+        - mountPath: "/cache"
+          name: "volume-2"
+          readOnly: false
+        - mountPath: "/home/jenkins"
+          name: "workspace-volume"
+          readOnly: false
+  restartPolicy: "Never"
+  serviceAccountName: "jenkins-worker"
   volumes:
-  - name: volume-0
-    configMap:
-      defaultMode: 420
-      name: ca-trusts
-      optional: false
-  - name: volume-1
-    configMap:
-      defaultMode: 420
-      name: ca-trusts
-      optional: false
-  - name: volume-2
-    emptyDir: {}
-  - name: workspace-volume
-    emptyDir: {}
+    - name: "workspace-volume"
+      emptyDir: {}
+    - name: "volume-0"
+      configMap:
+        name: "ca-trusts"
+        optional: false
+    - name: "volume-1"
+      configMap:
+        name: "ca-trusts"
+        optional: false
+    - name: "volume-2"
+      emptyDir: {}
