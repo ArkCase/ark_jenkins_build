@@ -231,10 +231,35 @@ is_mount_supported()
 }
 
 #
+# Make sure we take ownership of our home directory, wherever it may be
+#
+if [ -v HOME ] ; then
+	if [ -n "${HOME}" ] ; then
+		#
+		# If the home directory doesn't exist, create it!
+		#
+		if [ ! -d "${HOME}" ] ; then
+			say "🏠 The home directory for $(id -un) at [${HOME}] does not exist ... creating it!"
+			/usr/bin/sudo -n /usr/bin/mkdir -p "${HOME}" || fail "Could not create the home directory [${HOME}]"
+		fi
+
+		(
+			set -euo pipefail
+			say "🚨 Ensuring correct ownership and permissions for the home directory for $(id -un) at [${HOME}]..."
+			say "🔒 Setting ownership..."
+			/usr/bin/sudo /usr/bin/chown -R "$(id -u):$(id -g)" "${HOME}" || fail "Failed to take ownership of the home directory at [${HOME}]"
+			say "🛡️ Setting permissions..."
+			/usr/bin/chmod -R ug=rwX,o= "${HOME}" || fail "Failed to set the permissions for the home directory at [${HOME}]"
+			ok "Home directory ownership and permissions set!"
+		) || exit ${?}
+	fi
+fi
+
+#
 # If the cache directory doesn't exist, create it!
 #
 if [ ! -d "${CACHE_DIR}" ] ; then
-	say "📁 The cache directory [${CACHE_DIR}] does not exist ... creating it!"
+	say "💾 The cache directory [${CACHE_DIR}] does not exist ... creating it!"
 	/usr/bin/sudo -n /usr/bin/mkdir -p "${CACHE_DIR}" || fail "Could not create the cache directory [${CACHE_DIR}]"
 fi
 
@@ -248,12 +273,12 @@ fi
 	[ -w "${CACHE_DIR}" ] || FIX="true"
 	[ -x "${CACHE_DIR}" ] || FIX="true"
 	"${FIX}" || exit 0
-	say "🔐 Ownership and permissions may be off for the cache at [${CACHE_DIR}], fixing them!"
-	say "🔨 Setting ownership..."
-	/usr/bin/sudo -n /usr/bin/chown -R "$(id -u):$(id -g)" "${CACHE_DIR}" || fail "Could not set the ownership for the cache directory"
+	say "🚨 Ownership and permissions may be off for the cache at [${CACHE_DIR}], fixing them!"
+	say "🔒 Setting ownership..."
+	/usr/bin/sudo -n /usr/bin/chown -R "$(id -u):$(id -g)" "${CACHE_DIR}" || fail "Could not set the ownership for the cache directory at [${CACHE_DIR}]"
 	say "🛡️ Setting permissions..."
-	chmod -R ug=rwX,o= "${CACHE_DIR}" || fail "Could not set the permissions for the cache directory"
-	ok "Cache permissions fixed!"
+	chmod -R ug=rwX,o= "${CACHE_DIR}" || fail "Could not set the permissions for the cache directory at [${CACHE_DIR}]"
+	ok "Cache directory owner and permissions fixed!"
 ) || exit ${?}
 
 #
@@ -297,7 +322,7 @@ if ! "${DISABLE_COW}" && is_mount_supported ; then
 		fi
 
 		# Ok... we're good to go on the overlay attempt
-		say "🔩 Creating the overlay for [${MOUNTPOINT}]..."
+		say "💿 Creating the overlay for [${MOUNTPOINT}]..."
 
 		mkdir -p "${WORK}" || fail "Failed to create the work directory [${WORK}]"
 		mkdir -p "${UPPER}" || fail "Failed to create the upper directory [${UPPER}]"
