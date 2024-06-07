@@ -7,16 +7,6 @@ ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
 [ -v CLEANUP_TIMEOUT ] || CLEANUP_TIMEOUT=""
 [ -n "${CLEANUP_TIMEOUT}" ] || CLEANUP_TIMEOUT="20m"
 
-[ -v CLEANUP_RETRY_WAIT ] || CLEANUP_RETRY_WAIT=""
-[ -n "${CLEANUP_RETRY_WAIT}" ] || CLEANUP_RETRY_WAIT="15s"
-
-[ -v DISABLE_CLEANUP ] || DISABLE_CLEANUP=""
-case "${DISABLE_CLEANUP,,}" in
-	true | t | yes | y ) DISABLE_CLEANUP="true" ;;
-	* ) DISABLE_CLEANUP="false" ;;
-esac
-export DISABLE_CLEANUP
-
 timestamp()
 {
 	date -Ins -u
@@ -53,24 +43,6 @@ is_valid_name()
 	local NAME="${1}"
 	[[ "${NAME}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || return 1
 	return 0
-}
-
-execute()
-{
-	#
-	# Show the command about to be executed
-	#
-	say "${@@Q}"
-	if "${DISABLE_CLEANUP}" ; then
-		warn "Cleanup disabled: skipping the command execution"
-		return 0
-	fi
-
-	#
-	# Proceed with the execution
-	#
-	( exec "${@}" )
-	return ${?}
 }
 
 #
@@ -176,7 +148,7 @@ is_attachment_valid()
 	read ATTACHED NODE < <(jq -r '(.status.attached | tostring) + " " + .spec.nodeName' <<< "${ATTACHMENT_INFO}")
 	if [ -z "${ATTACHED}" ] || [ -z "${NODE}" ] ; then
 		# No node info?!?
-		say "\t❌ the attachment [${ATTACHMENT}] has no node information... deleting"
+		say "\t❌ the attachment [${ATTACHMENT}] has no node information..."
 		return 1
 	fi
 
@@ -191,24 +163,6 @@ is_attachment_valid()
 	return 0
 }
 
-dump_remaining()
-{
-	[ ${#} -eq 0 ] && return 0
-	warn "The following ${#} attachments did not clear and may need manual intervention"
-	for REC in "${@}" ; do
-		IFS="/" read PVC PV ATTACHMENT NODE OK <<< "${REC}"
-		"${OK}" && OK="✅" || OK="❌"
-		say "\t${OK} ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
-	done
-	return 0
-}
-
-fail_for_timeout()
-{
-	say "⌛ Timed out waiting for the attachments to clear"
-	dump_remaining "${@}"
-}
-
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [namespace] release"
@@ -218,7 +172,6 @@ usage()
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
 CLEANUP_TIMEOUT=$(timestr_to_secs "${CLEANUP_TIMEOUT}") || fail "Invalid value for CLEANUP_TIMEOUT: [${CLEANUP_TIMEOUT}]"
-CLEANUP_RETRY_WAIT=$(timestr_to_secs "${CLEANUP_RETRY_WAIT}") || fail "Invalid value for CLEANUP_RETRY_WAIT: [${CLEANUP_RETRY_WAIT}]"
 
 if [ ${#} -eq 2 ] ; then
 	NAMESPACE="${1}"
@@ -235,92 +188,73 @@ is_valid_name "${RELEASE}" || fail "The RELEASE value [${RELEASE}] is not valid"
 kubectl get namespace "${NAMESPACE}" &>/dev/null || fail "The namespace [${NAMESPACE}] does not exist"
 
 CLEANUP_TIMEOUT_STR="$(secs_to_timestr "${CLEANUP_TIMEOUT}")"
-CLEANUP_RETRY_WAIT_STR="$(secs_to_timestr "${CLEANUP_RETRY_WAIT}")"
 say "⌛ Waiting for the volume attachments to be released (up to ${CLEANUP_TIMEOUT_STR} total)..."
 PREVIOUS_RUN=()
 START="$(date +%s)"
-while true ; do
 
-	# Get all the PVCs in the currently default namespace
-	say "👀 Fetching all the PVC data on the namespace ${NAMESPACE} for release ${RELEASE}..."
-	PVC_DATA="$(kubectl get --namespace "${NAMESPACE}" pvc --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
-	say "👀 Fetching all the PV data on cluster..."
-	PV_DATA="$(kubectl get pv -o json)"
-	say "👀 Fetching all the Node data on the cluster..."
-	NODE_DATA="$(kubectl get node -o json)"
+# Get all the PVCs in the currently default namespace
+say "👀 Fetching all the PVC data on the namespace ${NAMESPACE} for release ${RELEASE}..."
+PVC_DATA="$(kubectl get --namespace "${NAMESPACE}" pvc --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
+say "👀 Fetching all the PV data on cluster..."
+PV_DATA="$(kubectl get pv -o json)"
+say "👀 Fetching all the Node data on the cluster..."
+NODE_DATA="$(kubectl get node -o json)"
 
-	PVC_COUNT="$(jq -r ".items | length" <<< "${PVC_DATA}")"
+PVC_COUNT="$(jq -r ".items | length" <<< "${PVC_DATA}")"
 
-	ok "Found ${PVC_COUNT} PVCs"
-	[ ${PVC_COUNT} -gt 0 ] || exit 0
+ok "Found ${PVC_COUNT} PVCs"
+[ ${PVC_COUNT} -gt 0 ] || exit 0
 
-	readarray -t PVCS < <(jq -r ".items[] | .metadata.name" <<< "${PVC_DATA}" | sort -u)
+readarray -t PVCS < <(jq -r ".items[] | .metadata.name" <<< "${PVC_DATA}" | sort -u)
 
-	say "👀 Fetching all the Volume Attachment data on the cluster..."
-	ATTACHMENT_DATA="$(kubectl get "${ATTACHMENT_RESOURCE}" -o json)"
+say "👀 Fetching all the Volume Attachment data on the cluster..."
+ATTACHMENT_DATA="$(kubectl get "${ATTACHMENT_RESOURCE}" -o json)"
 
-	(( BROKEN=0 )) || true
-	CURRENT_RUN=()
-	for PVC in "${PVCS[@]}" ; do
+WAITABLE=()
+(( BROKEN=0 )) || true
+for PVC in "${PVCS[@]}" ; do
 
-		PVC_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
+	PVC_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
 
-		PV="$(jq -r ".spec.volumeName" <<< "${PVC_INFO}")"
-		PV_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
-		if [ -z "${PV}" ] || [ -z "${PV_INFO}" ] ; then
-			err "No volume ${PV} found ... referenced by PVC ${PVC}"
-			continue
+	PV="$(jq -r ".spec.volumeName" <<< "${PVC_INFO}")"
+	PV_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
+	if [ -z "${PV}" ] || [ -z "${PV_INFO}" ] ; then
+		err "No volume ${PV} found ... referenced by PVC ${PVC}"
+		continue
+	fi
+
+	# For each PVC, identify the pod(s) it's attached to
+	readarray -t ATTACHMENTS < <(jq -r ".items[] | select(.spec.source.persistentVolumeName == \"${PV}\") | .metadata.name" <<< "${ATTACHMENT_DATA}")
+
+	[ "${#ATTACHMENTS[@]}" -gt 0 ] || continue
+
+	say "👀 Found ${#ATTACHMENTS[@]} attachments for ${PVC} (${PV})"
+
+	for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
+		ATTACHMENT_INFO="$(jq -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
+		NODE="$(jq -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
+
+		NODE_INFO="$(jq -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
+
+		ATTACHMENT_REF="${PVC}/${PV}/${ATTACHMENT}/${NODE}"
+		if is_attachment_valid "${ATTACHMENT}" "${PVC_INFO}" "${PV_INFO}" "${ATTACHMENT_INFO}" "${NODE_INFO}" ; then
+			WAITABLE+=("${ATTACHMENT}")
+		else
+			(( ++BROKEN ))
 		fi
-
-		# For each PVC, identify the pod(s) it's attached to
-		readarray -t ATTACHMENTS < <(jq -r ".items[] | select(.spec.source.persistentVolumeName == \"${PV}\") | .metadata.name" <<< "${ATTACHMENT_DATA}")
-
-		[ "${#ATTACHMENTS[@]}" -gt 0 ] || continue
-
-		say "👀 Found ${#ATTACHMENTS[@]} attachments for ${PVC}"
-		for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
-			ATTACHMENT_INFO="$(jq -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
-			NODE="$(jq -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
-
-			NODE_INFO="$(jq -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
-
-			ATTACHMENT_REF="${PVC}/${PV}/${ATTACHMENT}/${NODE}"
-			OK="true"
-			if ! is_attachment_valid "${ATTACHMENT}" "${PVC_INFO}" "${PV_INFO}" "${ATTACHMENT_INFO}" "${NODE_INFO}" ; then
-				OK="false"
-				(( ++BROKEN ))
-			fi
-			CURRENT_RUN+=("${ATTACHMENT_REF}/${OK}")
-		done
 	done
-
-	if [ ${#CURRENT_RUN[@]} -eq ${BROKEN} ] ; then
-		ok "All non-broken attachments have cleared!"
-		dump_remaining "${CURRENT_RUN[@]}"
-		exit 0
-	fi
-
-	say "👉 Found ${#CURRENT_RUN[@]} that are still pending removal (${BROKEN} appear to be broken)..."
-
-	# There are still some ... have we timed out yet?
-	NOW="$(date +%s)"
-	(( DIFF = ( NOW - START ) )) || true
-	[ ${DIFF} -lt ${CLEANUP_TIMEOUT} ] || fail_for_timeout "${CURRENT_RUN[@]}"
-
-	# Make sure our wait doesn't put us overbudget on the total wait
-	# time period, and make sure that if we have to wait one last time,
-	# that it also doesn't exceed our expected timeout
-	(( REMAINING = CLEANUP_TIMEOUT - DIFF )) || true
-	[ ${REMAINING} -gt 0 ] || fail_for_timeout "${CURRENT_RUN[@]}"
-	if [ ${REMAINING} -lt ${CLEANUP_RETRY_WAIT} ] ; then
-		# This will be our last wait, so just wait for however
-		# long the timeout is remaining and try one last time
-		CLEANUP_RETRY_WAIT=${REMAINING}
-		CLEANUP_RETRY_WAIT_STR="$(secs_to_timestr "${CLEANUP_RETRY_WAIT}")"
-	fi
-
-	say "💤 Will wait ${CLEANUP_RETRY_WAIT_STR} before the next attempt..."
-	sleep ${CLEANUP_RETRY_WAIT} || fail "Sleep interrupted - cannot continue!"
-
 done
+
+[ ${BROKEN} -le 0 ] || warn "Found ${BROKEN} attachments seem to be broken and will not be waited on (you can try to clear them manually)"
+
+if [ "${#WAITABLE[@]}" -le 0 ] ; then
+	ok "There were no waitable attachments found"
+	exit 0
+fi
+
+say "💤 Will wait up to ${CLEANUP_TIMEOUT_STR} for ${#WAITABLE[@]} live attachments to disappear"
+kubectl wait "${ATTACHMENT_RESOURCE}" "${WAITABLE[@]}" --for=delete --timeout="${CLEANUP_TIMEOUT_STR}" || \
+	fail "Timed out (or interrupted?) waiting for the attachments to clear"
+
+ok "All waitable attachments have been removed"
 exit 0
