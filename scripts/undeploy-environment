@@ -137,5 +137,8 @@ execute \
 		--timeout "${UNDEPLOY_TIMEOUT}" || \
 	fail "The Helm undeployment has failed, please review the logs"
 
+# We don't care what happens here, really ...
+"${BASEDIR}/wait-for-pvc-attachments" "${NAMESPACE}" "${RELEASE}" || true
+
 # All is well... exit!
 exit 0
