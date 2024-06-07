@@ -4,8 +4,15 @@ set -euo pipefail
 
 ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
 
-[ -v CLEANUP_TIMEOUT ] || CLEANUP_TIMEOUT=""
-[ -n "${CLEANUP_TIMEOUT}" ] || CLEANUP_TIMEOUT="20m"
+[ -v ATTACHMENT_WAIT_TIMEOUT ] || ATTACHMENT_WAIT_TIMEOUT=""
+[ -n "${ATTACHMENT_WAIT_TIMEOUT}" ] || ATTACHMENT_WAIT_TIMEOUT="20m"
+
+[ -v DISABLE_ATTACHMENT_WAIT ] || DISABLE_ATTACHMENT_WAIT=""
+case "${DISABLE_ATTACHMENT_WAIT,,}" in
+	true | t | yes | y ) DISABLE_ATTACHMENT_WAIT="true" ;;
+	* ) DISABLE_ATTACHMENT_WAIT="false" ;;
+esac
+export DISABLE_ATTACHMENT_WAIT
 
 timestamp()
 {
@@ -43,6 +50,24 @@ is_valid_name()
 	local NAME="${1}"
 	[[ "${NAME}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || return 1
 	return 0
+}
+
+execute()
+{
+	#
+	# Show the command about to be executed
+	#
+	say "${@@Q}"
+	if "${DISABLE_ATTACHMENT_WAIT}" ; then
+		warn "Attachment waiting disabled: skipping the command execution"
+		return 0
+	fi
+
+	#
+	# Proceed with the execution
+	#
+	( exec "${@}" )
+	return ${?}
 }
 
 #
@@ -171,7 +196,7 @@ usage()
 
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
-CLEANUP_TIMEOUT=$(timestr_to_secs "${CLEANUP_TIMEOUT}") || fail "Invalid value for CLEANUP_TIMEOUT: [${CLEANUP_TIMEOUT}]"
+ATTACHMENT_WAIT_TIMEOUT=$(timestr_to_secs "${ATTACHMENT_WAIT_TIMEOUT}") || fail "Invalid value for ATTACHMENT_WAIT_TIMEOUT: [${ATTACHMENT_WAIT_TIMEOUT}]"
 
 if [ ${#} -eq 2 ] ; then
 	NAMESPACE="${1}"
@@ -187,8 +212,8 @@ is_valid_name "${RELEASE}" || fail "The RELEASE value [${RELEASE}] is not valid"
 
 kubectl get namespace "${NAMESPACE}" &>/dev/null || fail "The namespace [${NAMESPACE}] does not exist"
 
-CLEANUP_TIMEOUT_STR="$(secs_to_timestr "${CLEANUP_TIMEOUT}")"
-say "⌛ Waiting for the volume attachments to be released (up to ${CLEANUP_TIMEOUT_STR} total)..."
+ATTACHMENT_WAIT_TIMEOUT_STR="$(secs_to_timestr "${ATTACHMENT_WAIT_TIMEOUT}")"
+say "⌛ Waiting for the volume attachments to be released (up to ${ATTACHMENT_WAIT_TIMEOUT_STR} total)..."
 PREVIOUS_RUN=()
 START="$(date +%s)"
 
@@ -252,8 +277,8 @@ if [ "${#WAITABLE[@]}" -le 0 ] ; then
 	exit 0
 fi
 
-say "💤 Will wait up to ${CLEANUP_TIMEOUT_STR} for ${#WAITABLE[@]} live attachments to disappear"
-kubectl wait "${ATTACHMENT_RESOURCE}" "${WAITABLE[@]}" --for=delete --timeout="${CLEANUP_TIMEOUT_STR}" || \
+say "💤 Will wait up to ${ATTACHMENT_WAIT_TIMEOUT_STR} for ${#WAITABLE[@]} live attachments to disappear"
+execute kubectl wait "${ATTACHMENT_RESOURCE}" "${WAITABLE[@]}" --for=delete --timeout="${ATTACHMENT_WAIT_TIMEOUT_STR}" || \
 	fail "Timed out (or interrupted?) waiting for the attachments to clear"
 
 ok "All waitable attachments have been removed"
