@@ -6,3 +6,9 @@
 [ -v MVN_CACHE ] || MVN_CACHE=""
 [ -n "${MVN_CACHE}" ] || MVN_CACHE="${CACHE_DIR}/mvn"
 export MVN_CACHE
+
+# Old value:
+# export MAVEN_OPTS="-Xms2G -Xss256M -XX:MetaspaceSize=1G -XX:MaxMetaspaceSize=2G -XX:+CMSClassUnloadingEnabled"
+#
+# We use proportional JVM properties for Heap management
+export MAVEN_OPTS="-XX:InitialRAMPercentage=75 -XX:MaxRAMPercentage=75 -Xss256M -XX:MetaspaceSize=1G -XX:MaxMetaspaceSize=2G -XX:+CMSClassUnloadingEnabled"
