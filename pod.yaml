@@ -6,7 +6,7 @@ metadata:
 spec:
   containers:
     - name: "jnlp"
-      image: "harbor.armedia.net/arkcase-marketplace-cache/arkcase/jenkins-build:3.3.11"
+      image: "harbor.armedia.net/arkcase-marketplace-cache/arkcase/jenkins-build:3.3.15"
       imagePullPolicy: "Always"
       command: [ "sleep", "infinity" ]
       workingDir: "/home/jenkins"
