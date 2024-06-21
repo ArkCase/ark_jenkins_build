@@ -2,11 +2,11 @@
 # Basic Parameters
 #
 ARG PUBLIC_REGISTRY="public.ecr.aws"
-ARG VER="3.3.15"
+ARG VER="3.4.0"
 
 ARG BASE_REG="${PUBLIC_REGISTRY}"
 ARG BASE_REPO="arkcase/jenkins-build-base"
-ARG BASE_VER="1.3.0"
+ARG BASE_VER="1.4.0"
 ARG BASE_IMG="${PUBLIC_REGISTRY}/${BASE_REPO}:${BASE_VER}"
 
 FROM "${BASE_IMG}"
@@ -25,6 +25,7 @@ USER "root"
 #
 RUN apt-get update && \
     apt-get install -y \
+        screen \
         sudo \
       && \
     apt-get clean && \
