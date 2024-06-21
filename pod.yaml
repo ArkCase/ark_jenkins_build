@@ -17,10 +17,10 @@ spec:
           value: "16.14"
       resources:
         limits:
-          memory: "8Gi"
-          ephemeral-storage: "16Gi"
+          memory: "16Gi"
+          ephemeral-storage: "24Gi"
         requests:
-          memory: "8Gi"
+          memory: "16Gi"
       volumeMounts:
         - mountPath: "/etc/ssl/certs/ca-certificates.crt"
           name: "volume-1"
