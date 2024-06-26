@@ -7,9 +7,6 @@ set -euo pipefail
 [ -v DOWNSCALE_TIMEOUT ] || DOWNSCALE_TIMEOUT=""
 [ -n "${DOWNSCALE_TIMEOUT}" ] || DOWNSCALE_TIMEOUT="20m"
 
-[ -v POD_WAIT_TIMEOUT ] || POD_WAIT_TIMEOUT=""
-[ -n "${POD_WAIT_TIMEOUT}" ] || POD_WAIT_TIMEOUT="5m"
-
 [ -v DISABLE_DOWNSCALE ] || DISABLE_DOWNSCALE=""
 case "${DISABLE_DOWNSCALE,,}" in
 	true | t | yes | y ) DISABLE_DOWNSCALE="true" ;;
@@ -175,39 +172,19 @@ timestr_to_secs()
 	return 0
 }
 
-wait_for_pods_to_die()
-{
-	local NAMESPACE="${1}"
-	local ELEMENT="${2}"
-	local TIMEOUT="${3}"
-
-	local JSON=""
-	JSON="$(kubectl --namespace "${NAMESPACE}" get "${ELEMENT}" --output json)" || return ${?}
-
-	local JQ_EXPR='.spec.selector.matchLabels | keys[] as $k | "\($k)=\(.[$k])"'
-	local LABELS=""
-	LABELS="$(jq -r "${JQ_EXPR}" <<< "${JSON}" | tr '\n' ',' | sed -e 's;,$;;g')" || return ${?}
-	[ -n "${LABELS}" ] || return 1
-
-	local TIMEOUT_STR="$(secs_to_timestr "${TIMEOUT}")"
-
-	# Wait for up to 5 minutes
-	say "💤 Waiting up to ${TIMEOUT_STR} for the pods from ${ELEMENT} to die..."
-	execute kubectl --namespace "${NAMESPACE}" wait --for=delete pods --selector "${LABELS}" --timeout "${TIMEOUT_STR}"
-}
-
 list_scalable_items()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
+	local SELECTOR="${3}"
 
-	local TYPES=(statefulset deployment)
+	local TYPES=(statefulset deployment daemonset)
 
 	for TYPE in "${TYPES[@]}" ; do
 		kubectl \
 			get "${TYPE}" \
 			--namespace "${NAMESPACE}" \
-			--selector "app.kubernetes.io/instance=${RELEASE}" \
+			--selector "${SELECTOR}" \
 			--output name
 	done | sort -u
 }
@@ -221,7 +198,6 @@ usage()
 [ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
 DOWNSCALE_TIMEOUT=$(timestr_to_secs "${DOWNSCALE_TIMEOUT}") || fail "Invalid value for DOWNSCALE_TIMEOUT: [${DOWNSCALE_TIMEOUT}]"
-POD_WAIT_TIMEOUT=$(timestr_to_secs "${POD_WAIT_TIMEOUT}") || fail "Invalid value for POD_WAIT_TIMEOUT: [${POD_WAIT_TIMEOUT}]"
 
 if [ ${#} -eq 1 ] ; then
 	NAMESPACE="$(kubectl config view --minify --output jsonpath="{..namespace}")"
@@ -238,9 +214,11 @@ is_valid_name "${RELEASE}" || fail "Invalid release name [${RELEASE}]"
 # If there's no deployment, do nothing...
 is_deployed "${NAMESPACE}" "${RELEASE}" || fail "The release [${RELEASE}] is not deployed into namespace [${NAMESPACE}] ... can't validate it"
 
+SELECTOR="app.kubernetes.io/instance=${RELEASE},arkcase.com/task=work"
+
 # Delete any prior test pods
 # NOTE: the timeout is PER ITEM, not total...
-readarray -t ELEMENTS < <(list_scalable_items "${NAMESPACE}" "${RELEASE}")
+readarray -t ELEMENTS < <(list_scalable_items "${NAMESPACE}" "${RELEASE}" "${SELECTOR}")
 if [ ${#ELEMENTS[@]} -le 0 ] ; then
 	say "👀 There are no scalable resources to downscale"
 	exit 0
@@ -252,25 +230,31 @@ execute kubectl scale "${ELEMENTS[@]}" --namespace "${NAMESPACE}" --replicas 0 |
 ok "Downscale requested!"
 DOWNSCALE_TIMEOUT_STR="$(secs_to_timestr "${DOWNSCALE_TIMEOUT}")"
 START="$(date +%s)"
-# Wait for all pops related to the given elements to disappear ...
-say "⌛ Waiting for the downscale to complete (up to ${DOWNSCALE_TIMEOUT_STR} total)..."
-for E in "${ELEMENTS[@]}" ; do
-	wait_for_pods_to_die "${NAMESPACE}" "${E}" "${POD_WAIT_TIMEOUT}" || warn "Failed to wait for the pods to disappear for ${E}"
+# Wait for all workload pods to disappear...
+while true ; do
+	say "⌛ Waiting for the downscale to complete (up to ${DOWNSCALE_TIMEOUT_STR} total)..."
 
-	# There are still some ... have we timed out yet?
+	# If this wait succeeds, we need not wait any further ...
+	execute kubectl --namespace "${NAMESPACE}" wait --for=delete pods --selector "${SELECTOR}" --timeout "${DOWNSCALE_TIMEOUT_STR}" && break
+
+	# The wait has timed out
+	warn "Failed to wait for the workload pods to disappear"
+
+	# Have we timed out yet? If we have, we puke out directly
 	NOW="$(date +%s)"
 	(( DIFF = ( NOW - START ) )) || true
-	[ ${DIFF} -lt ${DOWNSCALE_TIMEOUT} ] || fail "Timed out waiting for ${E} to scale down to 0"
 
 	# Make sure our wait doesn't put us overbudget on the total wait
 	# time period, and make sure that if we have to wait one last time,
 	# that it also doesn't exceed our expected timeout
 	(( REMAINING = DOWNSCALE_TIMEOUT - DIFF )) || true
-	[ ${REMAINING} -gt 0 ] || fail "Timed out waiting for ${E} instances to scale down to 0"
-	if [ ${REMAINING} -lt ${POD_WAIT_TIMEOUT} ] ; then
-		# This will be our last wait, so just wait for however
-		# long the timeout is remaining and try one last time
-		POD_WAIT_TIMEOUT=${REMAINING}
-	fi
+
+	# If there's no remaining time, we puke out ...
+	[ ${REMAINING} -gt 0 ] || fail "Timed out waiting for the workload pods to disappear"
+
+	# There's still time remaining, but less than before, so
+	# let's use that instead of the original value...
+	DOWNSCALE_TIMEOUT=${REMAINING}
+	DOWNSCALE_TIMEOUT_STR="$(secs_to_timestr "${DOWNSCALE_TIMEOUT}")"
 done
 ok "Downscale complete!"
