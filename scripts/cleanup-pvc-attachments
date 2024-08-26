@@ -177,121 +177,58 @@ timestr_to_secs()
 is_attachment_valid()
 {
 	local ATTACHMENT="${1}"
-	local POD_INFO="${2}"
-	local PVC_INFO="${3}"
-	local PV_INFO="${4}"
-	local ATTACHMENT_INFO="${5}"
-	local NODE_INFO="${6}"
+	local ATTACHMENT_INFO="${2}"
 
-	local ATTACHED=""
-	local NODE=""
+	# Identify the node and PV that it's attached to
+	local PV="$(jq -r ".spec.source.persistentVolumeName" <<< "${ATTACHMENT_INFO}")"
+	local PV_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_ALL}")"
 
-	read ATTACHED NODE < <(jq -r '(.status.attached | tostring) + " " + .spec.nodeName' <<< "${ATTACHMENT_INFO}")
-	if [ -z "${ATTACHED}" ] || [ -z "${NODE}" ] ; then
-		# No node info?!?
-		say "\t❌ the attachment [${ATTACHMENT}] has no node information... deleting"
+	if [ -z "${PV_INFO}" ] ; then
+		say "\t❌ ${ATTACHMENT} 🔗 PV ${PV} is missing"
 		return 1
 	fi
+
+	local NODE="$(jq -r ".spec.nodeName" <<< "${ATTACHMENT_INFO}")"
+	local NODE_INFO="$(jq -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_ALL}")"
 
 	if [ -z "${NODE_INFO}" ] ; then
-		say "\t❌ ${ATTACHMENT} 🔗 ${NODE} is missing"
+		say "\t❌ ${ATTACHMENT} 🔗 Node ${NODE} is missing"
 		return 1
 	fi
 
-	if [ -z "${POD_INFO}" ] ; then
-		local PVC="$(jq -r '.metadata.name' <<< "${PVC_INFO}")"
-		say "\t❌ no pod is referencing the PVC ${PVC}"
-		return 1
+	read STATUS REST < <(jq -r '(.status.attached | tostring)' <<< "${ATTACHMENT_INFO}")
+	if [ -n "${STATUS}" ] ; then
+		say "\t✅ ${ATTACHMENT} 🔗 ${NODE}"
+	else
+		say "\t✅ the attachment [${ATTACHMENT}] is not attached"
 	fi
-
-	# TODO: Check to see if the node is up or down
-
-	# Node is OK ... do we want to try to hunt down the pod that are using
-	# its PVC? If those pods are down, perhaps this attachment can be deleted?
-	say "\t✅ ${ATTACHMENT} 🔗 ${NODE}"
 	return 0
 }
-
-usage()
-{
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [namespace] release"
-	exit 1
-}
-
-[ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
 
 CLEANUP_TIMEOUT=$(timestr_to_secs "${CLEANUP_TIMEOUT}") || fail "Invalid value for CLEANUP_TIMEOUT: [${CLEANUP_TIMEOUT}]"
 CLEANUP_KILL_DELAY=$(timestr_to_secs "${CLEANUP_KILL_DELAY}") || fail "Invalid value for CLEANUP_KILL_DELAY: [${CLEANUP_KILL_DELAY}]"
 
-if [ ${#} -eq 2 ] ; then
-	NAMESPACE="${1}"
-	shift
-elif [ ! -v NAMESPACE ] ; then
-	NAMESPACE="$(kubectl config view --minify -o jsonpath="{..namespace}")"
-	[ -n "${NAMESPACE}" ] || NAMESPACE="default"
-fi
-is_valid_name "${NAMESPACE}" || fail "The NAMESPACE value [${NAMESPACE}] is not valid"
-
-RELEASE="${1}"
-is_valid_name "${RELEASE}" || fail "The RELEASE value [${RELEASE}] is not valid"
-
-kubectl get namespace "${NAMESPACE}" &>/dev/null || fail "The namespace [${NAMESPACE}] does not exist"
-
-# Get all the PVCs in the currently default namespace
-say "👉 Fetching all the PVC data on the namespace ${NAMESPACE} for release ${RELEASE}..."
-PVC_DATA="$(kubectl get --namespace "${NAMESPACE}" pvc --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
-say "👉 Fetching all the PV data on cluster..."
-PV_DATA="$(kubectl get pv -o json)"
-
-if ! "${CLEANUP_ALL}" ; then
-	say "👉 Fetching all the Pod data on the namespace ${NAMESPACE} for release ${RELEASE}..."
-	POD_DATA="$(kubectl get --namespace "${NAMESPACE}" pod --selector="app.kubernetes.io/instance=${RELEASE}" -o json)"
-	say "👉 Fetching all the Node data on the cluster..."
-	NODE_DATA="$(kubectl get node -o json)"
-fi
-
-PVC_COUNT="$(jq -r ".items | length" <<< "${PVC_DATA}")"
-
-ok "Found ${PVC_COUNT} PVCs"
-[ ${PVC_COUNT} -gt 0 ] || exit 0
-
-readarray -t PVCS < <(jq -r ".items[] | .metadata.name" <<< "${PVC_DATA}" | sort -u)
-
 say "👉 Fetching all the Volume Attachment data on the cluster..."
-ATTACHMENT_DATA="$(kubectl get "${ATTACHMENT_RESOURCE}" -o json)"
+ATTACHMENT_ALL="$(kubectl get "${ATTACHMENT_RESOURCE}" -o json)"
+say "👉 Fetching all the PV data on cluster..."
+PV_ALL="$(kubectl get pv -o json)"
+say "👉 Fetching all the Node data on the cluster..."
+NODE_ALL="$(kubectl get node -o json)"
 
-"${CLEANUP_ALL}" && warn "CLEANUP_ALL is set to TRUE - all attachments found will be deleted!"
+ATTACHMENT_COUNT="$(jq -r ".items | length" <<< "${ATTACHMENT_ALL}")"
+
+ok "Found ${ATTACHMENT_COUNT} instances of ${ATTACHMENT_RESOURCE}"
+[ ${ATTACHMENT_COUNT} -gt 0 ] || exit 0
+
+readarray -t ATTACHMENTS < <(jq -r ".items[] | .metadata.name" <<< "${ATTACHMENT_ALL}" | sort -u)
+
 TARGETS=()
-for PVC in "${PVCS[@]}" ; do
-	say "Scanning the for attachments to PVC ${PVC}..."
+for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
+	ATTACHMENT_INFO="$(jq -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_ALL}")"
 
-	PVC_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
+	is_attachment_valid "${ATTACHMENT}" "${ATTACHMENT_INFO}" && continue
 
-	PV="$(jq -r ".spec.volumeName" <<< "${PVC_INFO}")"
-	PV_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
-	if [ -z "${PV}" ] || [ -z "${PV_INFO}" ] ; then
-		err "No volume ${PV} found ... referenced by PVC ${PVC}"
-		continue
-	fi
-
-	# For each PVC, identify the pod(s) it's attached to
-	readarray -t ATTACHMENTS < <(jq -r ".items[] | select(.spec.source.persistentVolumeName == \"${PV}\") | .metadata.name" <<< "${ATTACHMENT_DATA}")
-
-	say "${PVC} - ${#ATTACHMENTS[@]} attachments found"
-	[ "${#ATTACHMENTS[@]}" -gt 0 ] || continue
-
-	for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
-		ATTACHMENT_INFO="$(jq -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
-		NODE="$(jq -r '.spec.nodeName' <<< "${ATTACHMENT_INFO}")"
-
-		if ! "${CLEANUP_ALL}" ; then
-			NODE_INFO="$(jq -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
-			POD_INFO="$(jq -r ".items[] | select(.spec.volumes[].persistentVolumeClaim.claimName == \"${PVC}\")" <<< "${POD_DATA}")"
-			is_attachment_valid "${ATTACHMENT}" "${POD_INFO}" "${PVC_INFO}" "${PV_INFO}" "${ATTACHMENT_INFO}" "${NODE_INFO}" && continue
-		fi
-
-		TARGETS+=("${PVC}/${PV}/${ATTACHMENT}/${NODE}")
-	done
+	TARGETS+=("${PV}/${ATTACHMENT}/${NODE}")
 done
 
 if [ ${#TARGETS[@]} -eq 0 ] ; then
@@ -306,9 +243,12 @@ else
 	CLEANUP_FORCE=()
 fi
 say "👉 Found ${#TARGETS[@]} attachments that needed deleting..."
+echo "${TARGETS[@]}" | tr ' ' '\n'
+exit 0
 for INFO in "${TARGETS[@]}" ; do
-	IFS="/" read PVC PV ATTACHMENT NODE <<< "${INFO}"
-	say "👀 ${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
+	IFS="/" read PV ATTACHMENT NODE <<< "${INFO}"
+	say "👀 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
+	continue
 
 	RC=0
 	execute timeout -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} kubectl delete --ignore-not-found=true --grace-period=1 --wait=true "${CLEANUP_FORCE[@]}" "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
