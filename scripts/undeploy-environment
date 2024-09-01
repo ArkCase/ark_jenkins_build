@@ -147,11 +147,20 @@ execute \
 	fail "The Helm undeployment has failed, please review the logs"
 
 # We don't care what happens here, really ...
-"${WAIT_FOR_ATTACHMENTS}" && \
+if "${WAIT_FOR_ATTACHMENTS}" ; then
 	ATTACHMENT_WAIT_TIMEOUT="${UNDEPLOY_TIMEOUT}" \
 	DISABLE_ATTACHMENT_WAIT="${DISABLE_UNDEPLOY}" \
 	"${BASEDIR}/wait-for-pvc-attachments" "${NAMESPACE}" "${RELEASE}" || \
 	true
+
+	# This should help clean up any stragglers
+	if is_valid_name "${SOURCE_CLUSTER:-}" ; then
+		DETACHMENT_WAIT_TIMEOUT="${UNDEPLOY_TIMEOUT}" \
+		DISABLE_DETACHMENT_WAIT="${DISABLE_UNDEPLOY}" \
+		"${BASEDIR}/wait-for-volumes-to-detach" "${SOURCE_CLUSTER}" "${NAMESPACE}" "${RELEASE}" || \
+		true
+	fi
+fi
 
 # All is well... exit!
 exit 0
