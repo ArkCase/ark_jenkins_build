@@ -37,6 +37,12 @@ err()
 	say "❌ ${@}"
 }
 
+quit()
+{
+	say "🚪 ${@}"
+	exit 0
+}
+
 fail()
 {
 	err "${@}"
@@ -56,7 +62,7 @@ execute()
 	# Show the command about to be executed
 	#
 	say "${@@Q}"
-	if "${DISABLE_ATTACHMENT_WAIT}" ; then
+	if "${DISABLE_DETACHMENT_WAIT}" ; then
 		warn "Attachment waiting disabled: skipping the command execution"
 		return 0
 	fi
@@ -74,7 +80,7 @@ get_longhorn_volume_name()
 	local PV="${2}"
 
 	kubectl \
-		--context "${HARVESTER_CLUSTER}" \
+		--kubeconfig "${HARVESTER_CFG}" \
 		--namespace "${CLUSTER}" \
 		get pvc "${PV}" -o json | \
 		jq -r '.spec.volumeName'
@@ -88,24 +94,22 @@ get_longhorn_volume_data()
 	local VOLUME="$(get_longhorn_volume_name "${@}")"
 	[ -n "${VOLUME}" ] || return 1
 	kubectl \
-		--context "${HARVESTER_CLUSTER}" \
+		--kubeconfig "${HARVESTER_CFG}" \
 		--namespace "${LONGHORN_NAMESPACE}" \
 		get volume "${VOLUME}" -o json
 }
 
-get_pv()
+get_release_pvs()
 {
-	local CLUSTER="${1}"
-	local NAMESPACE="${2}"
-	local PVC="${3}"
-	local ARGS=()
-
-	ARGS+=(--context "${CLUSTER}")
-	ARGS+=(--namespace "${NAMESPACE}")
+	local NAMESPACE="${1}"
+	local RELEASE="${2}"
 
 	kubectl \
-		"${ARGS[@]}" \
-		get pvc "${PVC}" -o json | jq -r '.spec.volumeName'
+		--kubeconfig "${CLUSTER_CFG}" \
+		--namespace "${NAMESPACE}" \
+		get pvc \
+			-l "app.kubernetes.io/instance=${RELEASE}" \
+			-o custom-columns="PV:.spec.volumeName" --no-headers
 }
 
 get_longhorn_volume()
@@ -127,12 +131,11 @@ cleanup()
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} cluster namespace [pvc]"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} cluster namespace release"
 	exit 1
 }
 
-[ ${#} -ge 1 ] || usage
-[ ${#} -le 3 ] || usage
+[ ${#} -eq 3 ] || usage
 
 CLUSTER="${1}"
 is_valid_name "${CLUSTER}" || fail "Invalid Rancher cluster name: [${CLUSTER}]"
@@ -140,14 +143,12 @@ is_valid_name "${CLUSTER}" || fail "Invalid Rancher cluster name: [${CLUSTER}]"
 NAMESPACE="${2}"
 is_valid_name "${NAMESPACE}" || fail "Invalid namespace: [${NAMESPACE}]"
 
-if [ ${#} -eq 3 ] ; then
-	PVC="${3}"
-	is_valid_name "${PVC}" || fail "Invalid PVC name: [${PVC}]"
-fi
+RELEASE="${3}"
+is_valid_name "${RELEASE}" || fail "Invalid release name: [${RELEASE}]"
 
-[ -v HARVESTER_CLUSTER ] || HARVESTER_CLUSTER=""
-[ -n "${HARVESTER_CLUSTER}" ] || HARVESTER_CLUSTER="harvester-ai5"
-is_valid_name "${HARVESTER_CLUSTER}" || fail "Invalid Harvester cluster name: [${HARVESTER_CLUSTER}]"
+[ -v HARVESTER ] || HARVESTER=""
+[ -n "${HARVESTER}" ] || HARVESTER="harvester-ai5"
+is_valid_name "${HARVESTER}" || fail "Invalid Harvester cluster name: [${HARVESTER}]"
 
 [ -v LONGHORN_NAMESPACE ] || LONGHORN_NAMESPACE=""
 [ -n "${LONGHORN_NAMESPACE}" ] || LONGHORN_NAMESPACE="longhorn-system"
@@ -157,34 +158,49 @@ trap cleanup EXIT
 
 CLUSTER_CFG="$(mktemp "${CLUSTER}.XXXXXXXX.conf")"
 rancher-get-kubeconfig "${CLUSTER}" "${CLUSTER_CFG}" || exit ${?}
+ok "Downloaded the kubeconfig for ${CLUSTER}"
 
-HARVESTER_CFG="$(mktemp "${HARVESTER_CFG}.XXXXXXXX.conf")"
+HARVESTER_CFG="$(mktemp "${HARVESTER}.XXXXXXXX.conf")"
 rancher-get-kubeconfig "${HARVESTER}" "${HARVESTER_CFG}" || exit ${?}
+ok "Downloaded the kubeconfig for ${HARVESTER}"
 
 #
 # Step one: get the non-ephemeral PVs from the namespace
 #
 
-PV="$(get_pv "${@}")" || fail "No PV instance found for ${@}"
+PVS="$(get_release_pvs "${NAMESPACE}" "${RELEASE}" 2>&1)" || fail "Failed to get the PVS at ${CLUSTER}::${NAMESPACE}, release ${RELEASE} (rc=${?}): ${PVS}"
 
-# Eventually, list all the volume objects for which we're
-# interested in waiting...
-VOLUMES=( "$(get_longhorn_volume_name "${CLUSTER}" "${PV}")" )
+readarray -t PVS <<< "${PVS}"
 
+[ ${#PVS[@]} -gt 1 ] || quit "No PVs found for release ${RELEASE} at ${CLUSTER}::${NAMESPACE}"
 
 #
 # Step two: convert those PV names into Longhorn volume object names
 #
+VOLUMES=()
+S="s"
+[ ${#PVS[@]} -ne 1 ] || S=""
+say "Resolving ${#PVS[@]} PersistentVolume object${S} to the underlying Longhorn Volume objects: ${PVS[@]}"
+for PV in "${PVS[@]}" ; do
+	if ! VOLUME="$(get_longhorn_volume_name "${CLUSTER}" "${PV}" 2>&1)" ; then
+		err "Failed to get the volume name for the PV ${CLUSTER}::${PV} (rc=${?}): ${VOLUME}"
+		continue
+	fi
+
+	say "\tResolved ${PV} -> ${VOLUME}"
+
+	VOLUMES+=( "${VOLUME}" )
+done
 
 #
 # Step three: begin the wait on those Longhorn volumes to detach
 #
 S="s"
 [ ${#VOLUMES[@]} -ne 1 ] || S=""
-say "Waiting for the following ${#VOLUMES[@]} volume${S} to detach: ${VOLUMES[@]}"
+say "Waiting for the following ${#VOLUMES[@]} volume${S} to become detached: ${VOLUMES[@]}"
 execute kubectl \
-	--context "${HARVESTER_CLUSTER}" \
+	--kubeconfig "${HARVESTER_CFG}" \
 	--namespace "${LONGHORN_NAMESPACE}" \
 	wait volume "${VOLUMES[@]}" \
-	--for jsonpath='.status.state'='detached' \
+	--for jsonpath=".status.state=detached" \
 	--timeout "${DETACHMENT_WAIT_TIMEOUT}"
