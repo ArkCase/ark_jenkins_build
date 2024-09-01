@@ -1,0 +1,190 @@
+#!/bin/bash
+
+set -euo pipefail
+
+[ -v DETACHMENT_WAIT_TIMEOUT ] || DETACHMENT_WAIT_TIMEOUT=""
+[ -n "${DETACHMENT_WAIT_TIMEOUT}" ] || DETACHMENT_WAIT_TIMEOUT="20m"
+
+[ -v DISABLE_DETACHMENT_WAIT ] || DISABLE_DETACHMENT_WAIT=""
+case "${DISABLE_DETACHMENT_WAIT,,}" in
+	true | t | yes | y ) DISABLE_DETACHMENT_WAIT="true" ;;
+	* ) DISABLE_DETACHMENT_WAIT="false" ;;
+esac
+export DISABLE_DETACHMENT_WAIT
+
+timestamp()
+{
+	/usr/bin/date -Ins -u
+}
+
+say()
+{
+	echo -e "$(timestamp): ${@}"
+}
+
+ok()
+{
+	say "✅ ${@}"
+}
+
+warn()
+{
+	say "⚠️ ${@}"
+}
+
+err()
+{
+	say "❌ ${@}"
+}
+
+fail()
+{
+	err "${@}"
+	exit ${EXIT_CODE:-1}
+}
+
+is_valid_name()
+{
+	local NAME="${1}"
+	[[ "${NAME}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || return 1
+	return 0
+}
+
+execute()
+{
+	#
+	# Show the command about to be executed
+	#
+	say "${@@Q}"
+	if "${DISABLE_ATTACHMENT_WAIT}" ; then
+		warn "Attachment waiting disabled: skipping the command execution"
+		return 0
+	fi
+
+	#
+	# Proceed with the execution
+	#
+	( exec "${@}" )
+	return ${?}
+}
+
+get_longhorn_volume_name()
+{
+	local CLUSTER="${1}"
+	local PV="${2}"
+
+	kubectl \
+		--context "${HARVESTER_CLUSTER}" \
+		--namespace "${CLUSTER}" \
+		get pvc "${PV}" -o json | \
+		jq -r '.spec.volumeName'
+}
+
+get_longhorn_volume_data()
+{
+	local CLUSTER="${1}"
+	local PV="${2}"
+
+	local VOLUME="$(get_longhorn_volume_name "${@}")"
+	[ -n "${VOLUME}" ] || return 1
+	kubectl \
+		--context "${HARVESTER_CLUSTER}" \
+		--namespace "${LONGHORN_NAMESPACE}" \
+		get volume "${VOLUME}" -o json
+}
+
+get_pv()
+{
+	local CLUSTER="${1}"
+	local NAMESPACE="${2}"
+	local PVC="${3}"
+	local ARGS=()
+
+	ARGS+=(--context "${CLUSTER}")
+	ARGS+=(--namespace "${NAMESPACE}")
+
+	kubectl \
+		"${ARGS[@]}" \
+		get pvc "${PVC}" -o json | jq -r '.spec.volumeName'
+}
+
+get_longhorn_volume()
+{
+	local CLUSTER="${1}"
+	local NAMESPACE="${2}"
+	local PVC="${3}"
+	local PV="$(get_pv "${@}")" || return 1
+
+	local DATA="$(get_longhorn_volume_data "${CLUSTER}" "${PV}")"
+	echo "${DATA}"
+}
+
+cleanup()
+{
+	[ -n "${CLUSTER_CFG:-}" ] && shred -u "${CLUSTER_CFG}"
+	[ -n "${HARVESTER_CFG:-}" ] && shred -u "${HARVESTER_CFG}"
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} cluster namespace [pvc]"
+	exit 1
+}
+
+[ ${#} -ge 1 ] || usage
+[ ${#} -le 3 ] || usage
+
+CLUSTER="${1}"
+is_valid_name "${CLUSTER}" || fail "Invalid Rancher cluster name: [${CLUSTER}]"
+
+NAMESPACE="${2}"
+is_valid_name "${NAMESPACE}" || fail "Invalid namespace: [${NAMESPACE}]"
+
+if [ ${#} -eq 3 ] ; then
+	PVC="${3}"
+	is_valid_name "${PVC}" || fail "Invalid PVC name: [${PVC}]"
+fi
+
+[ -v HARVESTER_CLUSTER ] || HARVESTER_CLUSTER=""
+[ -n "${HARVESTER_CLUSTER}" ] || HARVESTER_CLUSTER="harvester-ai5"
+is_valid_name "${HARVESTER_CLUSTER}" || fail "Invalid Harvester cluster name: [${HARVESTER_CLUSTER}]"
+
+[ -v LONGHORN_NAMESPACE ] || LONGHORN_NAMESPACE=""
+[ -n "${LONGHORN_NAMESPACE}" ] || LONGHORN_NAMESPACE="longhorn-system"
+is_valid_name "${LONGHORN_NAMESPACE}" || fail "Invalid Longhorn namespace: [${LONGHORN_NAMESPACE}]"
+
+trap cleanup EXIT
+
+CLUSTER_CFG="$(mktemp "${CLUSTER}.XXXXXXXX.conf")"
+rancher-get-kubeconfig "${CLUSTER}" "${CLUSTER_CFG}" || exit ${?}
+
+HARVESTER_CFG="$(mktemp "${HARVESTER_CFG}.XXXXXXXX.conf")"
+rancher-get-kubeconfig "${HARVESTER}" "${HARVESTER_CFG}" || exit ${?}
+
+#
+# Step one: get the non-ephemeral PVs from the namespace
+#
+
+PV="$(get_pv "${@}")" || fail "No PV instance found for ${@}"
+
+# Eventually, list all the volume objects for which we're
+# interested in waiting...
+VOLUMES=( "$(get_longhorn_volume_name "${CLUSTER}" "${PV}")" )
+
+
+#
+# Step two: convert those PV names into Longhorn volume object names
+#
+
+#
+# Step three: begin the wait on those Longhorn volumes to detach
+#
+S="s"
+[ ${#VOLUMES[@]} -ne 1 ] || S=""
+say "Waiting for the following ${#VOLUMES[@]} volume${S} to detach: ${VOLUMES[@]}"
+execute kubectl \
+	--context "${HARVESTER_CLUSTER}" \
+	--namespace "${LONGHORN_NAMESPACE}" \
+	wait volume "${VOLUMES[@]}" \
+	--for jsonpath='.status.state'='detached' \
+	--timeout "${DETACHMENT_WAIT_TIMEOUT}"
