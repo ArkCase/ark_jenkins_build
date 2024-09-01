@@ -192,12 +192,14 @@ for PV in "${PVS[@]}" ; do
 	VOLUMES+=( "${VOLUME}" )
 done
 
+[ ${#VOLUMES[@]} -gt 1 ] || quit "No Volume objects could be resolved"
+
 #
 # Step three: begin the wait on those Longhorn volumes to detach
 #
 S="s"
 [ ${#VOLUMES[@]} -ne 1 ] || S=""
-say "Waiting for the following ${#VOLUMES[@]} volume${S} to become detached: ${VOLUMES[@]}"
+say "Waiting for the above ${#VOLUMES[@]} volume${S} to become detached..."
 execute kubectl \
 	--kubeconfig "${HARVESTER_CFG}" \
 	--namespace "${LONGHORN_NAMESPACE}" \
