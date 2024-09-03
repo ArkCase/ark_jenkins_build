@@ -270,7 +270,7 @@ for PVC in "${PVCS[@]}" ; do
 	done
 done
 
-[ ${BROKEN} -le 0 ] || warn "Found ${BROKEN} attachments seem to be broken and will not be waited on (you can try to clear them manually)"
+[ ${BROKEN} -le 0 ] || warn "Found ${BROKEN} attachments that seem to be broken and will not be waited on (you can try to clear them manually)"
 
 if [ "${#WAITABLE[@]}" -le 0 ] ; then
 	ok "There were no waitable attachments found"

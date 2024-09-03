@@ -228,6 +228,8 @@ for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 
 	is_attachment_valid "${ATTACHMENT}" "${ATTACHMENT_INFO}" && continue
 
+	PV="$(jq -r ".spec.source.persistentVolumeName" <<< "${ATTACHMENT_INFO}")"
+	NODE="$(jq -r ".spec.nodeName" <<< "${ATTACHMENT_INFO}")"
 	TARGETS+=("${PV}/${ATTACHMENT}/${NODE}")
 done
 
