@@ -3,45 +3,7 @@ SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
 BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
-
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-err()
-{
-	say "❌ ${@}"
-}
-
-fail()
-{
-	err "${@}"
-	exit ${EXIT_CODE:-1}
-}
-
-auth_params()
-{
-	local USER="${1}"
-	local PASS=""
-
-	if [ ${#} -eq 1 ] ; then
-		[[ "${USER}" =~ ^([^:]*)(:(.*))?$ ]] || true
-		USER="${BASH_REMATCH[1]}"
-		PASS="${BASH_REMATCH[3]}"
-	else
-		PASS="${2}"
-	fi
-
-	cat <<-EOF
-	user "${USER}:${PASS}"
-	EOF
-}
+. /.functions
 
 #
 # Make sure we're given a solid token

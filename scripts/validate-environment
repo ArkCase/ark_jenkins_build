@@ -3,38 +3,15 @@ SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
 BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
+. /.functions
 
-[ -v DISABLE_VALIDATE ] || DISABLE_VALIDATE=""
-case "${DISABLE_VALIDATE,,}" in
-	true | t | yes | y ) DISABLE_VALIDATE="true" ;;
-	* ) DISABLE_VALIDATE="false" ;;
-esac
+set_as_boolean DISABLE_VALIDATE
 export DISABLE_VALIDATE
 
-timestamp()
+execute()
 {
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-warn()
-{
-	say "⚠️ ${@}"
-}
-
-err()
-{
-	say "❌ ${@}"
-}
-
-fail()
-{
-	err "${@}"
-	exit ${EXIT_CODE:-1}
+	execute_conditionally DISABLE_VALIDATE "${@}"
+	return ${?}
 }
 
 is_deployed()
@@ -42,31 +19,6 @@ is_deployed()
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
 	execute helm get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
-	return ${?}
-}
-
-is_valid_name()
-{
-	local STR="${1}"
-	[[ "${STR}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || return 1
-	return 0
-}
-
-execute()
-{
-	#
-	# Show the command about to be executed
-	#
-	say "${@@Q}"
-	if "${DISABLE_VALIDATE}" ; then
-		warn "Deployment disabled: skipping the command execution"
-		return 0
-	fi
-
-	#
-	# Proceed with the execution
-	#
-	( exec "${@}" )
 	return ${?}
 }
 
@@ -85,10 +37,10 @@ else
 	NAMESPACE="${1}"
 	shift
 fi
-is_valid_name "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
+is_valid_hostname_part "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
 
 RELEASE="${1}"
-is_valid_name "${RELEASE}" || fail "Invalid release name [${RELEASE}]"
+is_valid_hostname_part "${RELEASE}" || fail "Invalid release name [${RELEASE}]"
 
 # Delete the old installation, since it's the safest bet to ensure
 # that the correct resources, containers, and deployments are used

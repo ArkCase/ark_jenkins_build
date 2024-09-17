@@ -1,76 +1,16 @@
 #!/bin/bash
 
 set -euo pipefail
+. /.functions
 
-[ -v DETACHMENT_WAIT_TIMEOUT ] || DETACHMENT_WAIT_TIMEOUT=""
-[ -n "${DETACHMENT_WAIT_TIMEOUT}" ] || DETACHMENT_WAIT_TIMEOUT="20m"
+set_or_default DETACHMENT_WAIT_TIMEOUT "20m"
 
-[ -v DISABLE_DETACHMENT_WAIT ] || DISABLE_DETACHMENT_WAIT=""
-case "${DISABLE_DETACHMENT_WAIT,,}" in
-	true | t | yes | y ) DISABLE_DETACHMENT_WAIT="true" ;;
-	* ) DISABLE_DETACHMENT_WAIT="false" ;;
-esac
+set_as_boolean DISABLE_DETACHMENT_WAIT
 export DISABLE_DETACHMENT_WAIT
-
-timestamp()
-{
-	/usr/bin/date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-ok()
-{
-	say "✅ ${@}"
-}
-
-warn()
-{
-	say "⚠️ ${@}"
-}
-
-err()
-{
-	say "❌ ${@}"
-}
-
-quit()
-{
-	say "🚪 ${@}"
-	exit 0
-}
-
-fail()
-{
-	err "${@}"
-	exit ${EXIT_CODE:-1}
-}
-
-is_valid_name()
-{
-	local NAME="${1}"
-	[[ "${NAME}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || return 1
-	return 0
-}
 
 execute()
 {
-	#
-	# Show the command about to be executed
-	#
-	say "${@@Q}"
-	if "${DISABLE_DETACHMENT_WAIT}" ; then
-		warn "Attachment waiting disabled: skipping the command execution"
-		return 0
-	fi
-
-	#
-	# Proceed with the execution
-	#
-	( exec "${@}" )
+	execute_conditionally DISABLE_DETACHMENT_WAIT "${@}"
 	return ${?}
 }
 
@@ -147,21 +87,21 @@ usage()
 [ ${#} -eq 3 ] || usage
 
 CLUSTER="${1}"
-is_valid_name "${CLUSTER}" || fail "Invalid Rancher cluster name: [${CLUSTER}]"
+is_valid_hostname_part "${CLUSTER}" || fail "Invalid Rancher cluster name: [${CLUSTER}]"
 
 NAMESPACE="${2}"
-is_valid_name "${NAMESPACE}" || fail "Invalid namespace: [${NAMESPACE}]"
+is_valid_hostname_part "${NAMESPACE}" || fail "Invalid namespace: [${NAMESPACE}]"
 
 RELEASE="${3}"
-is_valid_name "${RELEASE}" || fail "Invalid release name: [${RELEASE}]"
+is_valid_hostname_part "${RELEASE}" || fail "Invalid release name: [${RELEASE}]"
 
 [ -v HARVESTER ] || HARVESTER=""
 [ -n "${HARVESTER}" ] || HARVESTER="harvester-ai5"
-is_valid_name "${HARVESTER}" || fail "Invalid Harvester cluster name: [${HARVESTER}]"
+is_valid_hostname_part "${HARVESTER}" || fail "Invalid Harvester cluster name: [${HARVESTER}]"
 
 [ -v LONGHORN_NAMESPACE ] || LONGHORN_NAMESPACE=""
 [ -n "${LONGHORN_NAMESPACE}" ] || LONGHORN_NAMESPACE="longhorn-system"
-is_valid_name "${LONGHORN_NAMESPACE}" || fail "Invalid Longhorn namespace: [${LONGHORN_NAMESPACE}]"
+is_valid_hostname_part "${LONGHORN_NAMESPACE}" || fail "Invalid Longhorn namespace: [${LONGHORN_NAMESPACE}]"
 
 trap cleanup EXIT
 

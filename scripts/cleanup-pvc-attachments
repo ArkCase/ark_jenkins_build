@@ -1,177 +1,24 @@
 #!/bin/bash
 
 set -euo pipefail
+. /.functions
 
 ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
 
-[ -v CLEANUP_TIMEOUT ] || CLEANUP_TIMEOUT=""
-[ -n "${CLEANUP_TIMEOUT}" ] || CLEANUP_TIMEOUT="1m"
+set_or_default CLEANUP_TIMEOUT "1m"
+set_or_default CLEANUP_KILL_DELAY "5s"
 
-[ -v CLEANUP_KILL_DELAY ] || CLEANUP_KILL_DELAY=""
-[ -n "${CLEANUP_KILL_DELAY}" ] || CLEANUP_KILL_DELAY="5s"
-
-[ -v DISABLE_CLEANUP ] || DISABLE_CLEANUP=""
-case "${DISABLE_CLEANUP,,}" in
-	true | t | yes | y ) DISABLE_CLEANUP="true" ;;
-	* ) DISABLE_CLEANUP="false" ;;
-esac
+set_as_boolean DISABLE_CLEANUP
 export DISABLE_CLEANUP
 
-[ -v CLEANUP_ALL ] || CLEANUP_ALL=""
-case "${CLEANUP_ALL,,}" in
-	true | t | yes | y | on | en | enable | enabled | active ) CLEANUP_ALL="true" ;;
-	* ) CLEANUP_ALL="false" ;;
-esac
+set_as_boolean CLEANUP_ALL
 
-[ -v CLEANUP_FORCE ] || CLEANUP_FORCE=""
-case "${CLEANUP_FORCE,,}" in
-	true | t | yes | y | on | en | enable | enabled | active ) CLEANUP_FORCE="true" ;;
-	* ) CLEANUP_FORCE="false" ;;
-esac
-
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-ok()
-{
-	say "✅ ${@}"
-}
-
-warn()
-{
-	say "⚠️ ${@}"
-}
-
-err()
-{
-	say "❌ ${@}"
-}
-
-fail()
-{
-	err "${@}"
-	exit ${EXIT_CODE:-1}
-}
-
-is_valid_name()
-{
-	local NAME="${1}"
-	[[ "${NAME}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || return 1
-	return 0
-}
+set_as_boolean CLEANUP_FORCE
 
 execute()
 {
-	#
-	# Show the command about to be executed
-	#
-	say "${@@Q}"
-	if "${DISABLE_CLEANUP}" ; then
-		warn "Cleanup disabled: skipping the command execution"
-		return 0
-	fi
-
-	#
-	# Proceed with the execution
-	#
-	( exec "${@}" )
+	execute_conditionally DISABLE_CLEANUP "${@}"
 	return ${?}
-}
-
-#
-# This function returns the number that serves as
-# a multiplier/divisor for a given time scale
-#
-get_time_mul()
-{
-	local TAG="${1^^}"
-
-	[[ "${TAG}" =~ ^[HDMS]$ ]] || return 1
-	local DURATION_S=1
-	local DURATION_M=$(( DURATION_S * 60 ))
-	local DURATION_H=$(( DURATION_M * 60 ))
-	local DURATION_D=$(( DURATION_H * 24 ))
-
-	local VAR="DURATION_${TAG}"
-	echo -n "${!VAR}"
-}
-
-#
-# This function converts numbers of seconds into
-# K8s timespecs, but leaves timespec strings alone
-#
-secs_to_timestr()
-{
-	local STR="${1}"
-	local NUM="(0|[1-9][0-9]*)"
-
-	[ -n "${STR}" ] || return 1
-
-	# If it's already a time string, return it
-	if [[ "${STR^^}" =~ ^(${NUM}D)?(${NUM}H)?(${NUM}M)?(${NUM}S)?$ ]] ; then
-		echo -n "${STR,,}"
-		return 0
-	fi
-
-	[[ "${STR}" =~ ^${NUM}$ ]] || return 1
-
-	local RET=""
-	local SIZE=0
-	local MUL=0
-	local SECS=${STR}
-	for C in D H M S ; do
-		MUL=$(get_time_mul "${C}")
-		(( SIZE = ( SECS / MUL ) ))
-		[ ${SIZE} -gt 0 ] && RET+="${SIZE}${C}"
-		(( SECS -= ( SIZE * MUL ) ))
-	done
-
-	echo -n ${RET,,}
-	return 0
-}
-
-#
-# This function converts K8s timespecs into
-# numbers of seconds, but leaves numbers alone
-#
-timestr_to_secs()
-{
-	local STR="${1}"
-	local NUM="(0|[1-9][0-9]*)"
-
-	# If it's a straight-up number,
-	# seconds already, so just return it
-	if [[ "${STR}" =~ ^${NUM}$ ]] ; then
-		echo -e "${STR}"
-		return 0
-	fi
-
-	# It could be a time string, so parse it out
-	[ -n "${STR}" ] || return 1
-	[[ "${STR^^}" =~ ^(${NUM}D)?(${NUM}H)?(${NUM}M)?(${NUM}S)?$ ]] || return 1
-
-	local PARTS=( "${BASH_REMATCH[@]:1}" )
-	[ ${#PARTS[@]} -ge 1 ] || return 1
-
-	local SIZE=0
-	local MUL=0
-	local SECS=0
-	for (( i = 0 ; i < ${#PARTS[@]} ; i++ )) ; do
-		[[ "${PARTS[i]}" =~ ^${NUM}([DHMS])$ ]] || continue
-		SIZE=${BASH_REMATCH[1]}
-		MUL=$(get_time_mul "${BASH_REMATCH[2]}")
-		(( SECS += SIZE * MUL ))
-	done
-
-	echo -n ${SECS}
-	return 0
 }
 
 is_attachment_valid()

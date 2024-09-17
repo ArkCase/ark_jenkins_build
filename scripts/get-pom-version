@@ -1,20 +1,7 @@
 #!/bin/bash
 
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-fail()
-{
-	say "❌ ${@}"
-	exit ${EXIT_CODE:-1}
-}
+set -euo pipefail
+. /.functions
 
 usage()
 {
@@ -30,9 +17,7 @@ if [ ${#} -eq 1 ] ; then
 	[ -n "${1}" ] || fail "The POM file path may not be the empty string"
 fi
 
-[ -e "${POM}" ] || fail "The POM file [${POM}] does not exist"
-[ -f "${POM}" ] || fail "The path [${POM}] is not a regular file"
-[ -r "${POM}" ] || fail "The POM file [${POM}] is not readable"
+require_file_readable "${POM}"
 
 VERSION="$(xmlstarlet sel -N "p=http://maven.apache.org/POM/4.0.0" -t -m "/p:project/*" --if 'name()="version"' -v '.' --else -n --break < "${POM}")" || fail "Failed to parse the /project/version node from the POM file [${POM}]"
 

@@ -3,39 +3,7 @@ SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
 BASEDIR="$(dirname "${SCRIPT}")"
 
 set -euo pipefail
-
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-warn()
-{
-	say "⚠️ ${@}"
-}
-
-err()
-{
-	say "❌ ${@}"
-}
-
-fail()
-{
-	err "${@}"
-	exit ${EXIT_CODE:-1}
-}
-
-is_valid_name()
-{
-	local STR="${1}"
-	[[ "${STR}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || return 1
-	return 0
-}
+. /.functions
 
 ensure_namespace_exists()
 {
@@ -54,10 +22,10 @@ usage()
 [ ${#} -eq 3 ] || usage
 
 NAMESPACE="${1}"
-is_valid_name "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
+is_valid_hostname_part "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
 
 CLUSTER_NAME="${2}"
-is_valid_name "${CLUSTER_NAME}" || fail "Invalid cluster name [${CLUSTER_NAME}]"
+is_valid_hostname_part "${CLUSTER_NAME}" || fail "Invalid cluster name [${CLUSTER_NAME}]"
 
 PROJECT_NAME="${3}"
 [ -n "${PROJECT_NAME}" ] || fail "Invalid project name [${PROJECT_NAME}]"

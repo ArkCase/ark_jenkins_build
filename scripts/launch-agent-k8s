@@ -1,36 +1,7 @@
 #!/bin/bash
-set -eou pipefail
 
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-ok()
-{
-	say "✅ ${@}"
-}
-
-warn()
-{
-	say "⚠️ ${@}"
-}
-
-err()
-{
-	say "❌ ${@}"
-}
-
-fail()
-{
-	err "${@}"
-	exit 1
-}
+set -euo pipefail
+. /.functions
 
 [ -v KUBERNETES_SERVICE_HOST ] || fail "KUBERNETES_SERVICE_HOST not defined"
 [ -v KUBERNETES_SERVICE_PORT ] || fail "KUBERNETES_SERVICE_PORT not defined"

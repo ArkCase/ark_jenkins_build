@@ -4,22 +4,7 @@ BASEDIR="$(dirname "${SCRIPT}")"
 SCRIPT="$(basename "${SCRIPT}")"
 
 set -euo pipefail
-
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-fail()
-{
-	say "❌ ${@}"
-	exit ${EXIT_CODE:-1}
-}
+. /.functions
 
 [ -v AWS_USERNAME ] || AWS_USERNAME="AWS"
 

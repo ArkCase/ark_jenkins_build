@@ -3,12 +3,8 @@ SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
 BASEDIR="$(dirname "${SCRIPT}")"
 SCRIPT="$(basename "${SCRIPT}")"
 
-FUNCTIONS="${BASEDIR}/.functions"
-if ! . "${FUNCTIONS}" ; then
-	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
-	exit 1
-fi
-unset FUNCTIONS
+set -euo pipefail
+. /.functions
 
 usage()
 {

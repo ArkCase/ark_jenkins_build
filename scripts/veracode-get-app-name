@@ -1,26 +1,7 @@
 #!/bin/bash
+
 set -euo pipefail
-
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-err()
-{
-	say "❌ ${@}"
-}
-
-fail()
-{
-	err "${@}"
-	exit ${EXIT_CODE:-1}
-}
+. /.functions
 
 usage()
 {

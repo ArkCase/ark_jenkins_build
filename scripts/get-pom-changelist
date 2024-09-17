@@ -1,20 +1,7 @@
 #!/bin/bash
 
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-fail()
-{
-	say "❌ ${@}"
-	exit ${EXIT_CODE:-1}
-}
+set -euo pipefail
+. /.functions
 
 usage()
 {
@@ -30,9 +17,8 @@ if [ ${#} -eq 1 ] ; then
 	[ -n "${1}" ] || fail "The POM file path may not be the empty string"
 fi
 
-[ -e "${POM}" ] || fail "The POM file [${POM}] does not exist"
-[ -f "${POM}" ] || fail "The path [${POM}] is not a regular file"
-[ -r "${POM}" ] || fail "The POM file [${POM}] is not readable"
+require_file_readable "${POM}"
 
 CHANGELIST="$(mvn -f "${POM}" help:evaluate -Dexpression=changelist -q -DforceStdout 2>&1)" || fail "Failed to compute the changelist using Maven's help:evaluate command: ${CHANGELIST}"
+
 exec tr -d '\n' <<< "${CHANGELIST}"

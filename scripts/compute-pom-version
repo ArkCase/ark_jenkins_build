@@ -1,20 +1,7 @@
 #!/bin/bash
 
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-fail()
-{
-	say "❌ ${@}" 1>&2
-	exit ${EXIT_CODE:-1}
-}
+set -euo pipefail
+. /.functions
 
 usage()
 {
@@ -39,17 +26,12 @@ if [ ${#} -eq 1 ] ; then
 	fi
 fi
 
-[ -e "${DIR}" ] || fail "The project directory [${DIR}] does not exist"
-[ -d "${DIR}" ] || fail "The path [${DIR}] is not a directory"
-[ -r "${DIR}" ] || fail "The project directory [${POM}] is not readable"
-[ -x "${DIR}" ] || fail "The project directory [${POM}] is not executable"
+require_dir_readable "${DIR}"
 
 # Ok ... so the directory is fine, let's use the POM file
 cd "${DIR}" || fail "Failed to CD into [${DIR}]"
 
-[ -e "${POM}" ] || fail "The POM file [${POM}] does not exist"
-[ -f "${POM}" ] || fail "The path [${POM}] is not a regular file"
-[ -r "${POM}" ] || fail "The POM file [${POM}] is not readable"
+require_file_readable "${POM}"
 
 # Have to use this, or things may not work properly everywhere
 # if an old version of the plugin is used

@@ -3,17 +3,14 @@ SCRIPT="$(readlink -f "${BASH_SOURCE}")"
 BASEDIR="$(dirname "${SCRIPT}")"
 SCRIPT="$(basename "${SCRIPT}")"
 
-FUNCTIONS="${BASEDIR}/.functions"
-if ! . "${FUNCTIONS}" ; then
-	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
-	exit 1
-fi
-unset FUNCTIONS
+set -euo pipefail
+. /.functions
 
-NPM="${NODE_HOME}/bin/npm"
-check_file_executable "${NPM}" || fail "No npm installed ... can't continue"
+set_or_default NPM "${NODE_HOME}/bin/npm"
+require_exe "${NPM}"
 
-usage() {
+usage()
+{
 	echo -e "usage: ${BASH_ARGV0} [npm-config-flags]"
 	echo -e "       (use npm config --help for more details)"
 	exit 1

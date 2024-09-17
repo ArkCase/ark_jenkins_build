@@ -1,31 +1,7 @@
 #!/bin/bash
+
 set -euo pipefail
-
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-warn()
-{
-	say "⚠️ ${@}"
-}
-
-err()
-{
-	say "❌ ${@}"
-}
-
-fail()
-{
-	err "${@}"
-	exit ${EXIT_CODE:-1}
-}
+. /.functions
 
 usage()
 {
@@ -34,7 +10,6 @@ usage()
 }
 
 [ ${#} -eq 2 ] || usage
-
 
 WORKFLOW="${1}"
 [ -n "${WORKFLOW}" ] || fail "The workflow may not be an empty string"

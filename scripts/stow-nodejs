@@ -3,12 +3,10 @@ SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
 BASEDIR="$(dirname "${SCRIPT}")"
 SCRIPT="$(basename "${SCRIPT}")"
 
-FUNCTIONS="${BASEDIR}/.functions"
-if ! . "${FUNCTIONS}" ; then
-	echo -e "ERROR: Failed to load the base functions from [${FUNCTIONS}]"
-	exit 1
-fi
-unset FUNCTIONS
+set -euo pipefail
+. /.functions
+
+set_as_boolean DISABLE_DEPLOY
 
 usage()
 {
@@ -24,14 +22,13 @@ SCOPE="${1}"
 [ -z "${STOW_URL}" ] && fail "The STOW_URL variable is empty"
 [[ "${STOW_URL}" =~ ^https?://[-a-zA-Z0-9]+(\.[-a-zA-Z0-9]+)*(/.*)?$ ]] || fail "The STOW_URL value [${STOW_URL}] is not a valid URL"
 
-[ -v DISABLE_DEPLOY ] || DISABLE_DEPLOY="false"
 if as_boolean "${DISABLE_DEPLOY}" ; then
 	echo -e "Deployment is disabled - skipping scope [${SCOPE}] to ${STOW_URL}!"
 	exit 0
 fi
 
-[ -v LERNA_FILE ] || LERNA_FILE="lerna.json"
-if [ ! -f "${LERNA_FILE}" ] ; then
+set_or_default LERNA_FILE "lerna.json"
+if is_file_readable "${LERNA_FILE}" ; then
 	say "No lerna configuration found at [${LERNA_FILE}], cannot deploy"
 	exit 0
 fi
@@ -57,4 +54,4 @@ if [ -d "${__NODE_MODULES}" ] ; then
 fi
 unset __NODE_MODULES
 
-exec lerna exec -- "npm publish --scope=${SCOPE}"
+execute lerna exec -- "npm publish --scope=${SCOPE}"
