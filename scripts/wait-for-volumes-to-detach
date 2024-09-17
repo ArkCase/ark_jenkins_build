@@ -74,6 +74,15 @@ execute()
 	return ${?}
 }
 
+is_harvester_cluster()
+{
+	local CLUSTER="${1}"
+	kubectl \
+		--kubeconfig "${HARVESTER_CFG}" \
+		get namespace "${CLUSTER}" &>/dev/null
+	return ${?}
+}
+
 get_longhorn_volume_name()
 {
 	local CLUSTER="${1}"
@@ -156,13 +165,18 @@ is_valid_name "${LONGHORN_NAMESPACE}" || fail "Invalid Longhorn namespace: [${LO
 
 trap cleanup EXIT
 
-CLUSTER_CFG="$(mktemp "${CLUSTER}.XXXXXXXX.conf")"
-rancher-get-kubeconfig "${CLUSTER}" "${CLUSTER_CFG}" || exit ${?}
-ok "Downloaded the kubeconfig for ${CLUSTER}"
-
 HARVESTER_CFG="$(mktemp "${HARVESTER}.XXXXXXXX.conf")"
 rancher-get-kubeconfig "${HARVESTER}" "${HARVESTER_CFG}" || exit ${?}
 ok "Downloaded the kubeconfig for ${HARVESTER}"
+
+#
+# Validation: is this cluster a Harvester/Longhorn cluster?
+#
+is_harvester_cluster "${CLUSTER}" || quit "The cluster ${CLUSTER} is not a Harvester cluster, cannot wait for Longhorn volumes"
+
+CLUSTER_CFG="$(mktemp "${CLUSTER}.XXXXXXXX.conf")"
+rancher-get-kubeconfig "${CLUSTER}" "${CLUSTER_CFG}" || exit ${?}
+ok "Downloaded the kubeconfig for ${CLUSTER}"
 
 #
 # Step one: get the non-ephemeral PVs from the namespace
