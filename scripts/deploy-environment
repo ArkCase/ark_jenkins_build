@@ -15,7 +15,7 @@ export PARTIAL_DEPLOYMENT
 
 execute()
 {
-	execute_conditionally DISABLE_DEPLOY "${@}"
+	execute_unless DISABLE_DEPLOY "${@}"
 	return ${?}
 }
 

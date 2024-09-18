@@ -17,7 +17,7 @@ set_as_boolean CLEANUP_FORCE
 
 execute()
 {
-	execute_conditionally DISABLE_CLEANUP "${@}"
+	execute_unless DISABLE_CLEANUP "${@}"
 	return ${?}
 }
 

@@ -10,7 +10,7 @@ export DISABLE_VALIDATE
 
 execute()
 {
-	execute_conditionally DISABLE_VALIDATE "${@}"
+	execute_unless DISABLE_VALIDATE "${@}"
 	return ${?}
 }
 

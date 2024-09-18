@@ -20,7 +20,7 @@ is_deployed()
 
 execute()
 {
-	execute_conditionally DISABLE_DOWNSCALE "${@}"
+	execute_unless DISABLE_DOWNSCALE "${@}"
 	return ${?}
 }
 

@@ -10,7 +10,7 @@ set_as_boolean DISABLE_ATTACHMENT_WAIT
 
 execute()
 {
-	execute_conditionally DISABLE_ATTACHMENT_WAIT "${@}"
+	execute_unless DISABLE_ATTACHMENT_WAIT "${@}"
 	return ${?}
 }
 

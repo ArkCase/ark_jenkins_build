@@ -10,7 +10,7 @@ export DISABLE_DETACHMENT_WAIT
 
 execute()
 {
-	execute_conditionally DISABLE_DETACHMENT_WAIT "${@}"
+	execute_unless DISABLE_DETACHMENT_WAIT "${@}"
 	return ${?}
 }
 

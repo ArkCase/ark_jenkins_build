@@ -35,7 +35,7 @@ should_uninstall()
 
 execute()
 {
-	execute_conditionally DISABLE_UNDEPLOY "${@}"
+	execute_unless DISABLE_UNDEPLOY "${@}"
 	return ${?}
 }
 
