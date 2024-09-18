@@ -5,7 +5,7 @@ set -euo pipefail
 
 usage()
 {
-	say "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [pom.xml]" 1>&2
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [pom.xml]" 1>&2
 	exit 1
 }
 

@@ -3,6 +3,14 @@
 set -euo pipefail
 . /.functions
 
+# We override the default one b/c we need to spit out
+# actual, parseable data to STDOUT and let the noise
+# go to STDERR
+say()
+{
+	echo -e "$(timestamp): ${@}" 1>&2
+}
+
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} workflow [param1=value1 param2=value2 ... paramN=valueN]" 1>&2
