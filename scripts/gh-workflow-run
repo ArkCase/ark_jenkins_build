@@ -13,11 +13,40 @@ say()
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} workflow [param1=value1 param2=value2 ... paramN=valueN]" 1>&2
+	[ ${#} -eq 0 ] || echo -e "❌ ${@}\n"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [--ref branch] workflow [param1=value1 param2=value2 ... paramN=valueN]" 1>&2
 	exit 1
 }
 
-[ ${#} -ge 1 ] || usage
+ARGS="$(getopt -o "r:h?" -l "help,ref:" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}")" || usage
+
+REF=()
+REF_SET="false"
+WORKFLOW=""
+WORKFLOW_SET="false"
+
+eval set -- "${ARGS}"
+
+while true ; do
+	case "${1}" in
+		--ref )
+			as_boolean "${REF_SET}" && fail "You may specify ${1} only once"
+			[ -n "${2}" ] || fail "The target branch may not be the empty string (${1})"
+			REF=(--ref "${2}")
+			REF_SET="true"
+			shift 2
+			continue
+			;;
+
+		--help | -h | "-?" ) usage ;;
+
+		-- ) shift ; break ;;
+
+		* ) usage ;;
+	esac
+done
+
+[ ${#} -ge 1 ] || usage "You must specify the name of the workflow to run"
 
 WORKFLOW="${1}"
 [ -n "${WORKFLOW}" ] || fail "The workflow may not be an empty string"
@@ -41,7 +70,7 @@ for p in "${PARAMS[@]}" ; do
 	say "\t${p}"
 done
 START="$(date -Is -u)"
-gh workflow run "${WORKFLOW}" "${PARAMS[@]}" || fail "Failed to launch the workflow run!"
+gh workflow run "${WORKFLOW}" "${REF[@]}" "${PARAMS[@]}" || fail "Failed to launch the workflow run!"
 say "\t✅ Workflow launched!"
 
 # This is unelegant, but appears to be necessary
