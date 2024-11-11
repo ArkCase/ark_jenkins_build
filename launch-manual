@@ -40,7 +40,7 @@ done
 
 # Some base tool versions
 [ -v JAVA_VERSION ] || JAVA_VERSION=""
-[ -n "${JAVA_VERISON}" ] || JAVA_VERSION="11"
+[ -n "${JAVA_VERISON}" ] || JAVA_VERSION="17"
 
 [ -v NODE_VERSION ] || NODE_VERSION=""
 [ -n "${NODE_VERSION}" ] || NODE_VERSION="16.14"
