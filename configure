@@ -2,6 +2,8 @@
 __OLD_BASH_OPTIONS__="$(set +o)"
 set -eou pipefail
 
+. /.functions
+
 DEBUG="${DEBUG:-false}"
 case "${DEBUG,,}" in
 	on | true | yes ) set -x ;;
@@ -57,11 +59,6 @@ cleanup()
 	cd .
 }
 
-timestamp()
-{
-	date -Ins -u
-}
-
 say()
 {
 	local OUT="$(echo -ne "$(timestamp): ${@}")"
@@ -70,22 +67,6 @@ say()
 	else
 		echo "${OUT}"
 	fi
-}
-
-ok()
-{
-	say "✅ ${@}"
-}
-
-err()
-{
-	say "❌ ${@}" 1>&@
-}
-
-fail()
-{
-	err "${@}"
-	exit ${EXIT_CODE:-1}
 }
 
 list_versions()

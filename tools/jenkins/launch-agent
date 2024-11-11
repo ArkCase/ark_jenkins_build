@@ -6,31 +6,7 @@ INVOKED="${0}"
 
 set -eou pipefail
 
-timestamp()
-{
-	date -Ins -u
-}
-
-say()
-{
-	echo -e "$(timestamp): ${@}"
-}
-
-ok()
-{
-	say "✅ ${@}"
-}
-
-err()
-{
-	say "❌ ${@}"
-}
-
-fail()
-{
-	err "${@}"
-	exit 1
-}
+. /.functions
 
 usage()
 {
@@ -47,28 +23,16 @@ set -- "${ARGS[@]}"
 
 JAVA_EXE="${1}"
 [ -n "${JAVA_EXE}" ] || fail "Must provide a non-empty java-exe parameter"
-
-# If it doesn't have any slashes, then it's assuming the executable must be in the path
-if ! [[ "${JAVA_EXE}" =~ / ]] ; then
-	OLD_EXE="${JAVA_EXE}"
-	JAVA_EXE="$(type -P "${JAVA_EXE}")" || fail "Could not find the Java executable [${OLD_EXE}] in the path"
-fi
-
-[ -e "${JAVA_EXE}" ] || fail "The file [${JAVA_EXE}] can't be used as the Java executable (does not exist)"
-[ -f "${JAVA_EXE}" ] || fail "The file [${JAVA_EXE}] can't be used as the Java executable (is not a regular file)"
-[ -r "${JAVA_EXE}" ] || fail "The file [${JAVA_EXE}] can't be used as the Java executable (not readable)"
-[ -x "${JAVA_EXE}" ] || fail "The file [${JAVA_EXE}] can't be used as the Java executable (not executable)"
+require_exe "${JAVA_EXE}"
 
 FS_DIR="${2}"
 [ -n "${FS_DIR}" ] || fail "Must provide a non-empty fs-dir parameter"
-[ -e "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (does not exist)"
-[ -d "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (is not a directory)"
-[ -r "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (is not readable)"
-[ -w "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (is not writable)"
-[ -x "${FS_DIR}" ] || fail "The file [${FS_DIR}] can't be used as the FS Directory (is not executable)"
+require_dir_readwrite "${FS_DIR}"
+
+[ -v AGENT_JAR ] || fail "The environment variable AGENT_JAR must be defined"
 
 shift 2
-JVM_ARGS=(${@})
+JVM_ARGS=( "${@}" )
 
 say "FS Dir   = [${FS_DIR}]"
 say "Java EXE = [${JAVA_EXE}]"
