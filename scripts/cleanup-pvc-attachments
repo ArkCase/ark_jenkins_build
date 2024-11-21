@@ -92,12 +92,9 @@ else
 	CLEANUP_FORCE=()
 fi
 say "👉 Found ${#TARGETS[@]} attachments that needed deleting..."
-echo "${TARGETS[@]}" | tr ' ' '\n'
-exit 0
 for INFO in "${TARGETS[@]}" ; do
 	IFS="/" read PV ATTACHMENT NODE <<< "${INFO}"
 	say "👀 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
-	continue
 
 	RC=0
 	execute timeout -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} kubectl delete --ignore-not-found=true --grace-period=1 --wait=true "${CLEANUP_FORCE[@]}" "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
