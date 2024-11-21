@@ -85,11 +85,11 @@ if [ ${#TARGETS[@]} -eq 0 ] ; then
 	exit 0
 fi
 
-if "${CLEANUP_FORCE}" ; then
+if as_boolean "${CLEANUP_FORCE}" ; then
 	warn "Forced deletion is activated! Will use --force when deleting resources"
 	CLEANUP_FORCE=(--force)
 else
-	CLEANUP_FORCE=()
+	CLEANUP_FORCE=(--grace-period=1)
 fi
 say "👉 Found ${#TARGETS[@]} attachments that needed deleting..."
 for INFO in "${TARGETS[@]}" ; do
@@ -97,7 +97,7 @@ for INFO in "${TARGETS[@]}" ; do
 	say "👀 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 
 	RC=0
-	execute timeout -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} kubectl delete --ignore-not-found=true --grace-period=1 --wait=true "${CLEANUP_FORCE[@]}" "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
+	execute timeout -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} kubectl delete --ignore-not-found=true --wait=true "${CLEANUP_FORCE[@]}" "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
 	if [ ${RC} -eq 0 ] ; then
 		ok "Attachment deleted!"
 	else
