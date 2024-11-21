@@ -88,6 +88,7 @@ fi
 if as_boolean "${CLEANUP_FORCE}" ; then
 	warn "Forced deletion is activated! Removing the finalizers"
 	execute kubectl patch "${ATTACHMENT_RESOURCE}" -p '{"metadata":{"finalizers":null}}' --type=merge "${TARGETS[@]}"
+	CLEANUP_FORCE=()
 else
 	CLEANUP_FORCE=(--grace-period=1)
 fi
