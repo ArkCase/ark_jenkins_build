@@ -41,8 +41,11 @@ say "👀 Fetching all the PV data on cluster..."
 PV_DATA="$(kubectl get pv -o json)"
 say "👀 Fetching all the PVC data..."
 PVC_DATA="$(kubectl get pvc -A -o json)"
+say "👀 Fetching all the PV Attachment data..."
+ATTACHMENT_DATA="$(kubectl get "${ATTACHMENT_RESOURCE}" -A -o json)"
 
 say "👀 Analyzing the attachments..."
+readarray -t ATTACHMENTS < <(jq -r ".items[] .metadata.name" <<< "${ATTACHMENT_DATA}" | sort)
 
 FAILED=()
 MISSING_NODE=()
