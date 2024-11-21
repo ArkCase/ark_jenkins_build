@@ -77,7 +77,7 @@ for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 
 	PV="$(jq -r ".spec.source.persistentVolumeName" <<< "${ATTACHMENT_INFO}")"
 	NODE="$(jq -r ".spec.nodeName" <<< "${ATTACHMENT_INFO}")"
-	TARGETS+=("${PV}/${ATTACHMENT}/${NODE}")
+	TARGETS+=("${ATTACHMENT}")
 done
 
 if [ ${#TARGETS[@]} -eq 0 ] ; then
@@ -86,25 +86,21 @@ if [ ${#TARGETS[@]} -eq 0 ] ; then
 fi
 
 if as_boolean "${CLEANUP_FORCE}" ; then
-	warn "Forced deletion is activated! Will use --force when deleting resources"
-	CLEANUP_FORCE=(--force)
+	warn "Forced deletion is activated! Removing the finalizers"
+	execute kubectl patch "${ATTACHMENT_RESOURCE}" -p '{"metadata":{"finalizers":null}}' --type=merge "${TARGETS[@]}"
 else
 	CLEANUP_FORCE=(--grace-period=1)
 fi
-say "👉 Found ${#TARGETS[@]} attachments that needed deleting..."
-for INFO in "${TARGETS[@]}" ; do
-	IFS="/" read PV ATTACHMENT NODE <<< "${INFO}"
-	say "👀 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 
-	RC=0
-	execute timeout -k ${CLEANUP_KILL_DELAY} ${CLEANUP_TIMEOUT} kubectl delete --ignore-not-found=true --wait=true "${CLEANUP_FORCE[@]}" "${ATTACHMENT_RESOURCE}" "${ATTACHMENT}" || RC=${?}
-	if [ ${RC} -eq 0 ] ; then
-		ok "Attachment deleted!"
-	else
-		case "${RC}" in
-			124 )	say "\t⌛ Deletion request timed out" ;;
-			* )		say "\t❌ Deletion failed (${RC})" ;;
-		esac
-	fi
-done
+say "👉 Found ${#TARGETS[@]} attachments that needed deleting..."
+RC=0
+execute kubectl delete --ignore-not-found --wait=true "${CLEANUP_FORCE[@]}" "${ATTACHMENT_RESOURCE}" "${TARGETS[@]}"
+if [ ${RC} -eq 0 ] ; then
+	ok "Attachments deleted!"
+else
+	case "${RC}" in
+		124 )	say "\t⌛ Deletion request timed out" ;;
+		* )		say "\t❌ Deletion failed (${RC})" ;;
+	esac
+fi
 exit 0
