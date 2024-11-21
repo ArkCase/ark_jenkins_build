@@ -1,17 +1,15 @@
 #!/bin/bash
+SCRIPT="$(readlink -f "${0}")"
+BASEDIR="$(dirname "${SCRIPT}")"
+SCRIPT="$(basename "${SCRIPT}")"
 
 set -euo pipefail
 . /.functions
 
 ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
 
-set_or_default CLEANUP_TIMEOUT "1m"
-set_or_default CLEANUP_KILL_DELAY "5s"
-
 set_as_boolean DISABLE_CLEANUP
 export DISABLE_CLEANUP
-
-set_as_boolean CLEANUP_ALL
 
 set_as_boolean CLEANUP_FORCE
 
@@ -52,8 +50,24 @@ is_attachment_valid()
 	return 0
 }
 
-CLEANUP_TIMEOUT=$(timestr_to_secs "${CLEANUP_TIMEOUT}") || fail "Invalid value for CLEANUP_TIMEOUT: [${CLEANUP_TIMEOUT}]"
-CLEANUP_KILL_DELAY=$(timestr_to_secs "${CLEANUP_KILL_DELAY}") || fail "Invalid value for CLEANUP_KILL_DELAY: [${CLEANUP_KILL_DELAY}]"
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ --help | -h | -? ] [ --force | -f ]" 1>&2
+	exit 1
+}
+
+ARGS="$(getopt -o "h?f" -l "help,force" -n "${SCRIPT}" -- "${@}")" || usage
+
+eval set -- "${ARGS}"
+while true ; do
+	case "${1}" in
+		--help | -h | "-?" ) usage ;;
+		-- ) shift ; break ;;
+		--force | -f ) CLEANUP_FORCE="true" ; shift ;;
+	esac
+done
+
+as_boolean "${CLEANUP_FORCE}" && warn "Forced cleanup has been requested, resource finalizers will be removed prior to deletion"
 
 say "👉 Fetching all the Volume Attachment data on the cluster..."
 ATTACHMENT_ALL="$(kubectl get "${ATTACHMENT_RESOURCE}" -o json)"
