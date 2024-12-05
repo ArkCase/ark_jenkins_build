@@ -4,11 +4,7 @@ set -eou pipefail
 
 . /.functions
 
-DEBUG="${DEBUG:-false}"
-case "${DEBUG,,}" in
-	on | true | yes ) set -x ;;
-	* ) ;;
-esac
+set_as_boolean DEBUG
 
 LATEST="latest"
 CONFIG=".configure"
@@ -17,38 +13,22 @@ IGNORE=".ignore"
 # This one is NOT configurable to leverage the tools baked into the image
 TOOL_DIR="/tools"
 
-[ -v DISABLE_COW ] || DISABLE_COW=""
-[ -n "${DISABLE_COW}" ] || DISABLE_COW="false"
-case "${DISABLE_COW,,}" in
-	true ) DISABLE_COW="true" ;;
-	* ) DISABLE_COW="false" ;;
-esac
+set_as_boolean DISABLE_COW
 
 #
 # All these others, however, are configurable
 #
-[ -v NO_COW_MARKER ] || NO_COW_MARKER=""
-[ -n "${NO_COW_MARKER}" ] || NO_COW_MARKER=".no-cow"
-
-[ -v CACHE_DIR ] || CACHE_DIR=""
-[ -n "${CACHE_DIR}" ] || CACHE_DIR="/cache"
+set_or_default NO_COW_MARKER ".no-cow"
+set_or_default CACHE_DIR "/cache"
 export CACHE_DIR
 
-[ -v CONF_DIR ] || CONF_DIR=""
-[ -n "${CONF_DIR}" ] || CONF_DIR="/conf.d"
+set_or_default CONF_DIR "/conf.d"
 
-[ -v INIT_DIR ] || INIT_DIR=""
-[ -n "${INIT_DIR}" ] || INIT_DIR="/init.d"
-
-trap cleanup EXIT
+set_or_default INIT_DIR "/init.d"
 
 GLOBAL_OUTPUT=()
 
-SILENT="${SILENT:-false}"
-case "${SILENT,,}" in
-	false | true ) ;;
-	* ) SILENT="false" ;;
-esac
+set_as_boolean SILENT
 
 cleanup()
 {
@@ -210,6 +190,8 @@ is_mount_supported()
 	rmdir "${T}" &>/dev/null
 	return "${RET}"
 }
+
+trap cleanup EXIT
 
 #
 # Make sure we take ownership of our home directory, wherever it may be
@@ -399,7 +381,7 @@ for TOOL in "${TOOL_NAMES[@]}" ; do
 
 		# If this script wants the parent configuration script(s) to be ignored
 		# it can set the IGNORE_PARENT variable to "true"
-		[ "${IGNORE_PARENT,,}" == "true" ] && break
+		as_boolean "${IGNORE_PARENT,,}" && break
 	done
 	popd &>/dev/null
 done
