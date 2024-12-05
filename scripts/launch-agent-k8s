@@ -7,44 +7,38 @@ set -euo pipefail
 [ -v KUBERNETES_SERVICE_PORT ] || fail "KUBERNETES_SERVICE_PORT not defined"
 [ -v KUBERNETES_SERVICE_PORT_HTTPS ] || fail "KUBERNETES_SERVICE_PORT_HTTPS not defined"
 
-[ -v JENKINS_JAVA_BIN ] || JENKINS_JAVA_BIN=""
-[ -n "${JENKINS_JAVA_BIN}" ] || JENKINS_JAVA_BIN="java"
+set_or_default JENKINS_JAVA_BIN "java"
 
-[ -v JENKINS_JAVA_OPTS ] || JENKINS_JAVA_OPTS=""
-[ -n "${JENKINS_JAVA_OPTS}" ] || JENKINS_JAVA_OPTS="${JAVA_OPTS:-}"
+set_or_default JENKINS_JAVA_OPTS="${JAVA_OPTS:-}"
+
+VARS=(
+	-direct:JENKINS_DIRECT_CONNECTION
+	-instanceIdentity:JENKINS_INSTANCE_IDENTITY
+	-name:JENKINS_AGENT_NAME
+	-protocols:JENKINS_PROTOCOLS
+	-secret:JENKINS_SECRET
+	-tunnel:JENKINS_TUNNEL
+	-url:JENKINS_URL
+)
 
 CMD=()
-[ -v JENKINS_DIRECT_CONNECTION ] || JENKINS_DIRECT_CONNECTION=""
-[ -n "${JENKINS_DIRECT_CONNECTION}" ] && CMD+=(-direct "${JENKINS_DIRECT_CONNECTION}")
+for VAR in "${VARS[@]}" ; do
+	[[ "${VAR}" =~ ^(-[^:]+):([a-zA-Z0-9_]+)(=(.*))?$ ]] || continue
+	ARG="${BASH_REMATCH[1]}"
+	ENV="${BASH_REMATCH[2]}"
+	DEF="${BASH_REMATCH[4]}"
 
-[ -v JENKINS_INSTANCE_IDENTITY ] || JENKINS_INSTANCE_IDENTITY=""
-[ -n "${JENKINS_INSTANCE_IDENTITY}" ] && CMD+=(-instanceIdentity "${JENKINS_INSTANCE_IDENTITY}")
+	set_or_default "${ENV}" "${DEF}"
+	[ -n "${!ENV}" ] && CMD+=("${ARG}" "${!ENV}")
+done
 
-[ -v JENKINS_AGENT_NAME ] || JENKINS_AGENT_NAME=""
-[ -n "${JENKINS_AGENT_NAME}" ] && CMD+=(-name "${JENKINS_AGENT_NAME}")
+set_as_boolean JENKINS_WEB_SOCKET
+as_boolean "${JENKINS_WEB_SOCKET}" && CMD+=(-webSocket)
 
-[ -v JENKINS_PROTOCOLS ] || JENKINS_PROTOCOLS=""
-[ -n "${JENKINS_PROTOCOLS}" ] && CMD+=(-protocols "${JENKINS_PROTOCOLS}")
-
-[ -v JENKINS_SECRET ] || JENKINS_SECRET=""
-[ -n "${JENKINS_SECRET}" ] && CMD+=(-secret "${JENKINS_SECRET}")
-
-[ -v JENKINS_TUNNEL ] || JENKINS_TUNNEL=""
-[ -n "${JENKINS_TUNNEL}" ] && CMD+=(-tunnel "${JENKINS_TUNNEL}")
-
-[ -v JENKINS_URL ] || JENKINS_URL=""
-[ -n "${JENKINS_URL}" ] && CMD+=(-url "${JENKINS_URL}")
-
-[ -v JENKINS_WEB_SOCKET ] || JENKINS_WEB_SOCKET=""
-case "${JENKINS_WEB_SOCKET,,}" in
-	true ) CMD+=(-webSocket) ;;
-esac
-
-[ -v JENKINS_AGENT_WORKDIR ] || JENKINS_AGENT_WORKDIR=""
-[ -n "${JENKINS_AGENT_WORKDIR}" ] || JENKINS_AGENT_WORKDIR="${HOME}"
+set_as_default JENKINS_AGENT_WORKDIR "${HOME}"
 CMD+=(-workDir "${JENKINS_AGENT_WORKDIR}")
 
-[ -d "${JENKINS_AGENT_WORKDIR}" ] || mkdir -p "${JENKINS_AGENT_WORKDIR}" || fail "Failed to create the work directory at [${JENKINS_AGENT_WORKDIR}]"
+ensure_dir "${JENKINS_AGENT_WORKDIR}"
 /usr/bin/sudo /usr/bin/chown -R "$(id -u):$(id -g)" "${JENKINS_AGENT_WORKDIR}" || fail "Failed to take ownership of the work directory at [${JENKINS_AGENT_WORKDIR}]"
 /usr/bin/chmod -R ug=rwX,o= "${JENKINS_AGENT_WORKDIR}" || fail "Failed to set the permissions for the work directory at [${JENKINS_AGENT_WORKDIR}]"
 
@@ -57,15 +51,12 @@ download-agent "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
 
 set -- "${JENKINS_JAVA_BIN}" ${JENKINS_JAVA_OPTS} -jar "${AGENT_JAR}" "${CMD[@]}"
 
-[ -v JENKINS_AGENT_TEST ] || JENKINS_AGENT_TEST=""
-case "${JENKINS_AGENT_TEST,,}" in
-	"true" )
-		JENKINS_AGENT_TEST="true"
-		warn "Test mode active - old command: [${@@Q}]"
-		set -- "/usr/bin/sleep" "infinity"
-		;;
-	* ) JENKINS_AGENT_TEST="false" ;;
-esac
+set_as_boolean JENKINS_AGENT_TEST
+if as_boolean "${JENKINS_AGENT_TEST}" ; then
+	JENKINS_AGENT_TEST="true"
+	warn "Test mode active - old command: [${@@Q}]"
+	set -- "/usr/bin/tail" "-f" "/dev/null"
+fi
 
-say "🚀 Executing the command: ${@@Q}"
+running "Executing the command: ${@@Q}"
 exec /configure "${@}"
