@@ -9,7 +9,7 @@ set -euo pipefail
 
 set_or_default JENKINS_JAVA_BIN "java"
 
-set_or_default JENKINS_JAVA_OPTS="${JAVA_OPTS:-}"
+set_or_default JENKINS_JAVA_OPTS "${JAVA_OPTS:-}"
 
 VARS=(
 	-direct:JENKINS_DIRECT_CONNECTION
