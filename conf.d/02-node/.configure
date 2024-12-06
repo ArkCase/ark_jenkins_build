@@ -39,5 +39,6 @@ for REG in "${!NODE_REGISTRY_@}" ; do
 	npm config set "${TAG}:registry" "${URL}" --global
 done
 
-export NODE_PATH="${NODE_CACHE}/lib/node_modules:${NODE_HOME}/lib/node_modules"
+# This is no longer computed here, and leaving it in could cause problems
+# export NODE_PATH="${NODE_CACHE}/lib/node_modules:${NODE_HOME}/lib/node_modules"
 export PATH="${NODE_CACHE}/lib/node_modules/.bin:${PATH}"
