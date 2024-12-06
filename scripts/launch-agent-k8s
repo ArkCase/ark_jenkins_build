@@ -35,7 +35,7 @@ done
 set_as_boolean JENKINS_WEB_SOCKET
 as_boolean "${JENKINS_WEB_SOCKET}" && CMD+=(-webSocket)
 
-set_as_default JENKINS_AGENT_WORKDIR "${HOME}"
+set_or_default JENKINS_AGENT_WORKDIR "${HOME}"
 CMD+=(-workDir "${JENKINS_AGENT_WORKDIR}")
 
 ensure_dir "${JENKINS_AGENT_WORKDIR}"
