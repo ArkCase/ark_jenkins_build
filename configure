@@ -84,7 +84,10 @@ configure_tools()
 		TOOL="${TOOL^^}"
 		# Swap out dashes for underscores
 		TOOL="${TOOL/-/_}"
-		VER="${!TOOL:-""}"
+
+		# Construct the variable name
+		TOOL_VAR="TOOLS_${TOOL}"
+		VER="${!TOOL_VAR:-""}"
 
 		# If no version is given for the tool, then we use the ${LATEST} marker
 		if [ -z "${VER}" ] ; then
