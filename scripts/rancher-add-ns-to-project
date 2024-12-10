@@ -79,8 +79,9 @@ EOF
 )"
 
 say "👉 Adding the namespace ${NAMESPACE} into the project ${PROJECT_NAME} in the cluster ${CLUSTER_NAME}..."
+# We expressly don't use -f here because we want the return value to be given to us
 OUT="$(
-	curl -fsSL \
+	curl -sSL \
 	--config <(auth_params "${RANCHER_TOKEN}") \
 	--header "Content-Type: application/json" \
 	--data "${API_JSON}" \
@@ -88,7 +89,7 @@ OUT="$(
 )" || fail "Failed to add the namespace ${NAMESPACE} into the project ${PROJECT_NAME} in the cluster ${CLUSTER_NAME}: ${OUT}"
 
 RESULT="$(jq -r '((.status // "-") | tostring) + " " + (.type // "-") + " " + (.code // "-")' <<< "${OUT}")" || fail "Failed to parse the API output: ${OUT}"
-read STATUS TYPE CODE < <(echo -n "${RESULT}")
+read STATUS TYPE CODE <<< "${RESULT}"
 
 RESULT="added"
 case "${STATUS}" in
