@@ -87,7 +87,8 @@ OUT="$(
 	"${RANCHER_API_ENDPOINT}" 2>&1
 )"
 
-read STATUS TYPE CODE < <(jq -r '((.status // "-") | tostring) + " " + (.type // "-") + " " + (.code // "-")' <<< "${OUT}")
+RESULT="$(jq -r '((.status // "-") | tostring) + " " + (.type // "-") + " " + (.code // "-")' <<< "${OUT}")" || fail "Failed to parse the API output: ${OUT}"
+read STATUS TYPE CODE < <(echo -n "${RESULT}")
 
 RESULT="added"
 case "${STATUS}" in
