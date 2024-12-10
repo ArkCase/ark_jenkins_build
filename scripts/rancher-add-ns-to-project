@@ -80,12 +80,12 @@ EOF
 
 say "👉 Adding the namespace ${NAMESPACE} into the project ${PROJECT_NAME} in the cluster ${CLUSTER_NAME}..."
 OUT="$(
-	curl -sSL \
+	curl -fsSL \
 	--config <(auth_params "${RANCHER_TOKEN}") \
 	--header "Content-Type: application/json" \
 	--data "${API_JSON}" \
 	"${RANCHER_API_ENDPOINT}" 2>&1
-)"
+)" || fail "Failed to add the namespace ${NAMESPACE} into the project ${PROJECT_NAME} in the cluster ${CLUSTER_NAME}: ${OUT}"
 
 RESULT="$(jq -r '((.status // "-") | tostring) + " " + (.type // "-") + " " + (.code // "-")' <<< "${OUT}")" || fail "Failed to parse the API output: ${OUT}"
 read STATUS TYPE CODE < <(echo -n "${RESULT}")
