@@ -48,6 +48,12 @@ PROJECT_ID="${BASH_REMATCH[2]}"
 
 RANCHER_API_ENDPOINT+="/k8s/clusters/${CLUSTER_ID}/v1/namespaces"
 
+#
+# Tag the namespace for the target application instance name
+#
+set_or_default INSTANCE_TAG
+[ -n "${INSTANCE_TAG}" ] && INSTANCE_TAG="\"app.kubernetes.io/instance\": \"${INSTANCE_TAG//\"/\\\"}\","
+
 PATCH_JSON="$(cat <<-EOF
 {
 	"metadata": {
@@ -55,6 +61,7 @@ PATCH_JSON="$(cat <<-EOF
 			"field.cattle.io/projectId": "${CLUSTER_ID}:${PROJECT_ID}"
 		},
 		"labels": {
+			${INSTANCE_TAG}
 			"field.cattle.io/projectId": "${PROJECT_ID}"
 		}
 	}
