@@ -1,0 +1,155 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+ATTACHMENT_RESOURCE="volumeattachments.storage.k8s.io"
+
+list_broken_items()
+{
+	local LABEL="${1}"
+	shift
+	local ITEMS=()
+	readarray -t ITEMS < <(echo -en "${@}" | tr " " "\n" | sort -u)
+	set -- "${ITEMS[@]}"
+	if [ ${#} -gt 0 ] ; then
+		err "Found ${#} ${LABEL}:"
+		echo -e "${@}" | tr " " "\n" | sed -e "s;^;\t;g"
+	fi
+	return 0
+}
+
+# It's OK to override the global one this time
+execute()
+{
+	#
+	# Show the command about to be executed
+	#
+	say "${@@Q}"
+
+	#
+	# Proceed with the execution
+	#
+	( exec "${@}" )
+	return ${?}
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ --help | -h | -? ] [ --context context ] [ --namespace namespace | -n namespace ]" 1>&2
+	exit 1
+}
+
+ARGS="$(getopt -o "h?n:" -l "help,context:,namespace:" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}")" || usage
+eval set -- "${ARGS}"
+
+CONTEXT=""
+CONTEXT_SET="false"
+NAMESPACE=""
+NAMESPACE_SET="false"
+
+CTXARGS=()
+
+while true ; do
+	case "${1}" in
+		--context )
+			as_boolean "${CONTEXT_SET}" && fail "You may specify ${1} only once"
+			CONTEXT="${2}"
+			[ -n "${CONTEXT}" ] || fail "The context name may not be the empty string (${1})"
+			CONTEXT_SET="true"
+			shift 2
+			;;
+
+		--namespace | -n )
+			as_boolean "${NAMESPACE_SET}" && fail "You may specify ${1} only once"
+			NAMESPACE="${2}"
+			is_valid_hostname_part "${NAMESPACE}" || fail "The namespace [${NAMESPACE}] is not valid (${1})"
+			NAMESPACE_SET="true"
+			shift 2
+			;;
+
+		--help | -h | "-?" ) usage ;;
+
+		-- ) shift ; break ;;
+
+		* ) usage ;;
+	esac
+done
+
+CTXARGS=()
+as_boolean "${CONTEXT_SET}" && CTXARGS=(--context "${CONTEXT}")
+
+NSARGS=()
+as_boolean "${NAMESPACE_SET}" && NSARGS=(--namespace "${NAMESPACE}")
+
+# Get all the PVCs in the currently default namespace
+say "👀 Fetching all the PVC data..."
+PVC_DATA="$(kubectl "${CTXARGS[@]}" "${NSARGS[@]}" get pvc -o json)"
+readarray -t PVCS < <(jq -r ".items[] .metadata.name" <<< "${PVC_DATA}" | sort)
+[ ${#PVCS[@]} -gt 0 ] || quit "No PVCs found"
+
+say "👀 Fetching all the Node data on the cluster..."
+NODE_DATA="$(kubectl "${CTXARGS[@]}" get node -o json)"
+say "👀 Fetching all the PV data on cluster..."
+PV_DATA="$(kubectl "${CTXARGS[@]}" get pv -o json)"
+say "👀 Fetching all the PV Attachment data..."
+ATTACHMENT_DATA="$(kubectl "${CTXARGS[@]}" get "${ATTACHMENT_RESOURCE}" -A -o json)"
+
+say "👀 Analyzing the PVCs..."
+
+FAILED=()
+MISSING_NODE=()
+MISSING_PV=()
+PVC_WITHOUT_PV=()
+
+for PVC in "${PVCS[@]}" ; do
+	PVC_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
+
+	OK="true"
+
+	PV="$(jq -r '.spec.volumeName // ""' <<< "${PVC_INFO}")"
+	if [ -n "${PV}" ] ; then
+		PV_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
+		if [ -n "${PV_INFO}" ] ; then
+			ATTACHMENT_INFO="$(jq -r ".items[] | select(.spec.source.persistentVolumeName == \"${PV}\")" <<< "${ATTACHMENT_DATA}")"
+			# If there's no attachment for this PV, we simply skip it
+			[ -n "${ATTACHMENT_INFO}" ] || continue
+
+			NODE="$(jq -r '.spec.nodeName // ""' <<< "${ATTACHMENT_INFO}")"
+			# An attachment without a node is also not of interest
+			[ -n "${NODE}" ] || continue
+
+			ATTACHMENT="$(jq -r ".metadata.name" <<< "${ATTACHMENT_INFO}")"
+
+			NODE_INFO="$(jq -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
+			if [ -z "${NODE_INFO}" ] ; then
+				MISSING_NODE+=( "${NODE}" )
+				OK="false"
+				NODE="❌ ${NODE}"
+			fi
+		else
+			MISSING_PV+=( "${PV}" )
+			OK="false"
+			PV="❌ ${PV}"
+		fi
+	else
+		PVC_WITHOUT_PV+=( "${PVC}" )
+		OK="false"
+		PVC="❌ ${PVC}"
+	fi
+
+	say "\t${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
+
+	"${OK}" && continue
+
+	FAILED+=( "${PVC}" )
+done
+if [ ${#FAILED[@]} -eq 0 ] ; then
+    ok "No broken PVC attachments were found!"
+    exit 0
+fi
+
+list_broken_items "broken PVCs" "${FAILED[@]}"
+list_broken_items "PVCs without a PV" "${PVC_WITHOUT_PV[@]}"
+list_broken_items "missing PVs" "${MISSING_PV[@]}"
+list_broken_items "missing Nodes" "${MISSING_NODE[@]}"
