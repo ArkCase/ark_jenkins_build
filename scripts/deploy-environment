@@ -61,63 +61,129 @@ sanitize_common_dirs()
 	done
 }
 
-get_artifacts_selector()
+get_artifacts_sum()
 {
 	local RELEASE="${1}"
-	echo -n "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/name=app,app.kubernetes.io/part=artifacts"
+	local SELECTOR="app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/name=app,app.kubernetes.io/part=artifacts"
+	local POD=""
+
+	#
+	# We try to run the sum on all existing pods
+	#
+	while read POD ; do
+		# Run the sums. We do this in case networking is not
+		# available to us. We know kubectl *is*, so use that!
+		SUM="$(timeout 30 kubectl exec -it "${POD}" -- /usr/local/bin/global-sums 2>/dev/null)" || continue
+
+		# The SUM must be valid JSON output
+		[ -n "${SUM}" ] || continue
+		jq -r <<< "${SUM}" &>/dev/null || continue
+
+		# We're good to go, so return it!
+		echo -en "${SUM}"
+		break
+	done < <(kubectl get pod --selector "${SELECTOR}" -o name | sort)
+	return 0
 }
 
-get_artifacts_image()
+list_pod_uids()
 {
 	local RELEASE="${1}"
-	local JQ_EXP='.items[] | .status.containerStatuses[] | select(.name == "artifacts") | .imageID'
-	kubectl get pod -l "$(get_artifacts_selector "${RELEASE}")"  -o json | jq -r "${JQ_EXP}" | sort -u
+	local SELECTOR="app.kubernetes.io/instance=${RELEASE},arkcase.com/deploys=true"
+	kubectl get pod --selector "${SELECTOR}" -o json | jq -r '.items[].metadata | .uid + " " + .name'
+}
+
+list_changed_categories()
+{
+	local RELEASE="${1}"
+	local OLD_ARTIFACTS="${2}"
+	local NEW_ARTIFACTS="$(get_artifacts_sum "${RELEASE}")"
+
+	# If the sums are the same, we simply do nothing
+	[ "${OLD_ARTIFACTS}" == "${NEW_ARTIFACTS}" ] && return 0
+
+	# If they're not, we need to be a bit more nuanced
+	local OLD=""
+	local NEW=""
+	local CATEGORY=""
+	while read CATEGORY ; do
+		OLD="$(jq -r ".${CATEGORY}" <<< "${OLD_ARTIFACTS}")"
+		NEW="$(jq -r ".${CATEGORY}" <<< "${NEW_ARTIFACTS}")"
+		[ "${OLD}" == "${NEW}" ] || echo "${CATEGORY}"
+	done < <(jq -r '.art[0] * .art[1] | keys[]' <<< "{ \"art\": [${OLD_ARTIFACTS}, ${NEW_ARTIFACTS}]}" | sort -u)
+	return 0
+}
+
+list_changed_pods()
+{
+	local RELEASE="${1}"
+	local OLD_PODS="${2}"
+	shift 2
+	local CATEGORIES=( "${@}" )
+
+	local OLD=""
+	local OLD_UID=""
+	local NEW=""
+	local NEW_UID=""
+	for CATEGORY in "${CATEGORIES[@]}" ; do
+
+		# Compare each pod's UID from before and now to identify which
+		# pods were rolled already, vs. which ones still need rolling
+		while read POD ; do
+			read OLD_UID OLD < <(grep -e " ${POD}$" <<< "${OLD_PODS}") || true
+			read NEW_UID NEW < <(grep -e " ${POD}$" <<< "${NEW_PODS}") || true
+
+			# If the pod existed, and there's a change in the UID, then
+			# the pod needs to be rolled, so add it to the list!
+			[ -n "${OLD_UID}" ] && [ "${OLD_UID}" != "${NEW_UID}" ] && echo -e "${POD}"
+		done < <(kubectl get pods --selector "arkcase.com/deploy-${CATEGORY}=true" -o name | sed -e 's;^pod/;;g')
+	done | sort -u
+	return 0
 }
 
 roll_pods_if_necessary()
 {
 	local RELEASE="${1}"
-	local OLD="${2}"
+	local OLD_ARTIFACTS="${2}"
+	local OLD_PODS="${3}"
 
-	# Roll the artifacts pod, and wait for it to be ready again...
-	local SELECTOR="$(get_artifacts_selector "${RELEASE}")"
+	# Get the list of changed categories
+	local CATEGORIES=()
+	readarray -t CATEGORIES < <(list_changed_categories "${RELEASE}" "${OLD_ARTIFACTS}")
 
-	# Roll the pod
-	if execute kubectl delete pod -l "${SELECTOR}" ; then
-		err "Failed to roll the artifacts pod (selector = [${SELECTOR}])"
+	# If no categories changed, we do nothing because any pods that would
+	# need to be rolled due to template changes would have been rolled already...
+	[ ${#CATEGORIES[@]} -gt 0 ] || return 0
+
+	# We have a list of changed categories, so roll their pods
+	eyes "The following artifact categories have changed: [ ${CATEGORIES[@]} ]"
+
+	local NEW_PODS="$(list_pod_uids "${RELEASE}")"
+
+	local ROLL=()
+	readarray -t ROLL < <(list_changed_pods "${RELEASE}" "${OLD_PODS}" "${CATEGORIES[@]}")
+
+	# rolled, we simply return
+	if [ ${#ROLL[@]} -eq 0 ] ; then
+		ok "All pods that needed to be rolled have already been rolled!"
 		return 0
 	fi
 
-	# Wait for it to be ready
-	if ! kubectl wait --for=condition=Initialized pod -l "${SELECTOR}" --timeout 5m ; then
-		err "The artifacts pod failed to be initialized in the allowed timeframe - can't check the image"
-		return 0
+	# And ... roll!!
+	doing "These pods need to be rolled due to deployment artifact changes: [ ${ROLL[@]} ]"
+	if ! execute kubectl delete pod "${ROLL[@]}" --wait --timeout 5m ; then
+		err "Pod roll timed out - the deployment may end up unstable..."
+		return 1
 	fi
 
-	# Get the new image
-	local NEW="$(get_artifacts_image "${RELEASE}")"
-
-	# If the new one is blank, we don't need to roll anything
-	[ -n "${NEW}" ] || return 0
-
-	# If they're the same, there's no need to roll anything
-	[ "${OLD}" != "${NEW}" ] || return 0
-
-	# If they're different, then def we should roll whatever needs rolling
-
-	# TODO: Shall we check each dependent pod in turn to see if rolling is needed? How?
-
-	SELECTOR="app.kubernetes.io/instance=${RELEASE},arkcase.com/pod-depends=artifacts"
-	if ! execute kubectl delete pod -l "${SELECTOR}" ; then
-		err "Failed to roll the dependent pods (selector = [${SELECTOR}])"
-		return 0
+	# Now we wait ...
+	waiting "Wait for the rolled pods to become ready again..."
+	if ! execute kubectl wait --for=condition=Ready pod "${ROLL[@]}" --timeout 5m ; then
+		err "Failed to wait for the rolled pods to become initialized"
+		return 1
 	fi
 
-	if ! kubectl wait --for=condition=Ready pod -l "${SELECTOR}" --timeout "${DEPLOY_TIMEOUT}" ; then
-		err "The artifact-dependent pods did not become ready after the stipulated timeout (${DEPLOY_TIMEOUT}, selector = [${SELECTOR}])"
-		return 0
-	fi
-
+	# All's well that ends well!
 	ok "Rolled all pods dependent on the artifacts pod"
 	return 0
 }
@@ -224,47 +290,34 @@ ensure_namespace_exists "${NAMESPACE}" || fail "Failed to ensure that the requir
 
 set -- "${HELM_ARGS[@]}"
 
+OLD_ARTIFACTS="$(get_artifacts_sum "${RELEASE}")"
+OLD_PODS="$(list_pod_uids "${RELEASE}")"
+
 #
-# We use this to gate partial deployments (i.e. in-place upgrades)
-# b/c we haven't yet fully figured out how to properly handle those.
+# First, try an in-place upgrade. If that fails, then undeploy and redeploy.
 #
-if "${PARTIAL_DEPLOYMENT}" ; then
+# Since we're using --wait, this will not exit until all the pods are ready,
+# which allows us to analyze them safely and make a robust decision about
+# which pods actually needed to be rolled, but weren't
+#
+RC=0
+execute \
+	helm upgrade --install \
+		"${RELEASE}" "${CHART}" \
+		--namespace "${NAMESPACE}" \
+		--wait \
+		--timeout "${DEPLOY_TIMEOUT}" \
+		"${VALUES[@]}" \
+		"${@}" || RC=${?}
 
-	# Take note of the container image that's currently in use by the
-	# artifacts pod, so we can determine if dependent pods need to be
-	# rolled later
-	OLD_ARTIFACTS="$(get_artifacts_image "${RELEASE}")"
-
-	#
-	# TODO: one possible way to identify pods that need to be rolled is by
-	# comparing their "Initialized" timestamp to the artifacts pod's
-	# "Ready" timestamp. If they were initialized before the new artifacts
-	# pod became ready, then clearly they will have to be rolled so they
-	# can consume the new artifacts.
-	#
-
-	#
-	# First, try an in-place upgrade. If that fails, then undeploy and redeploy
-	#
-	RC=0
-	execute \
-		helm upgrade --install \
-			"${RELEASE}" "${CHART}" \
-			--namespace "${NAMESPACE}" \
-			--wait \
-			--timeout "${DEPLOY_TIMEOUT}" \
-			"${VALUES[@]}" \
-			"${@}" || RC=${?}
-
-	if [ ${RC} -eq 0 ] ; then
-		ok "Deployment complete!"
-		roll_pods_if_necessary "${RELEASE}" "${OLD_ARTIFACTS}"
-		execute kubectl --namespace "${NAMESPACE}" get pods
-		exit ${RC}
-	fi
-
-	err "In-place upgrade failed, will try to uninstall and reinstall"
+if [ ${RC} -eq 0 ] ; then
+	ok "Deployment complete!"
+	roll_pods_if_necessary "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || err "Conditional pod rolling may have failed, tread carefully!"
+	execute kubectl --namespace "${NAMESPACE}" get pods
+	exit ${RC}
 fi
+
+err "In-place upgrade attempt failed (rc=${RC}), will try to uninstall and reinstall"
 
 # The in-place upgrade failed ... we need to fully uninstall and
 # then re-install the application!
@@ -275,6 +328,9 @@ DISABLE_UNDEPLOY="${DISABLE_DEPLOY}" "${BASEDIR}/undeploy-environment" "${NAMESP
 # Execute the new installation, using install --replace
 # because we intend to be preserving history from our
 # uninstalls
+#
+# TODO: see above note re: Artemis rollout issues when clustering
+# is enabled
 RC=0
 execute \
 	helm install --replace \
@@ -289,7 +345,7 @@ if [ ${RC} -eq 0 ] ; then
 	ok "Deployment complete!"
 else
 	# Something went wrong, try to offer up more information
-	err "The Helm deployment has failed, please review the logs"
+	err "The Helm deployment has failed (rc=${RC}), please review the logs"
 fi
 
 execute kubectl --namespace "${NAMESPACE}" get pods
