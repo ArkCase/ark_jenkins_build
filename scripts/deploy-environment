@@ -13,6 +13,24 @@ export DISABLE_DEPLOY
 set_as_boolean PARTIAL_DEPLOYMENT
 export PARTIAL_DEPLOYMENT
 
+set_or_default DEPLOY_LABEL "arkcase.com/deploys"
+
+if [ -n "${DEPLOY_LABEL}" ] ; then
+	eyes "Validating the deployment label [${DEPLOY_LABEL}]"
+	if [[ "${DEPLOY_LABEL}" =~ ^(([-a-zA-Z0-9.]{1,253})/)?(([a-zA-Z0-9][-a-zA-Z0-9_.]{0,45})?[a-zA-Z0-9])$ ]] ; then
+		PREFIX="${BASH_REMATCH[2]}"
+		NAME="${BASH_REMATCH[3]}"
+		if is_valid_hostname "${PREFIX}" ; then
+			ok "The deployment label is valid: [${DEPLOY_LABEL}]"
+		else
+			err "The deployment label's prefix [${PREFIX}] is not valid RFC-1123 hostname, ignoring it"
+			DEPLOY_LABEL=""
+		fi
+	else
+		DEPLOY_LABEL=""
+	fi
+fi
+
 execute()
 {
 	execute_unless DISABLE_DEPLOY "${@}"
@@ -89,7 +107,7 @@ get_artifacts_sum()
 list_pod_uids()
 {
 	local RELEASE="${1}"
-	local SELECTOR="app.kubernetes.io/instance=${RELEASE},arkcase.com/deploys=true"
+	local SELECTOR="app.kubernetes.io/instance=${RELEASE},${DEPLOY_LABEL}=true"
 	kubectl get pod --selector "${SELECTOR}" -o json | jq -r '.items[].metadata | .uid + " " + .name'
 }
 
@@ -127,14 +145,14 @@ list_changed_pods()
 {
 	local RELEASE="${1}"
 	local OLD_PODS="${2}"
-	shift 2
-	local CATEGORIES=( "${@}" )
+	local NEW_PODS="${3}"
+	shift 3
 
 	local OLD=""
 	local OLD_UID=""
 	local NEW=""
 	local NEW_UID=""
-	for CATEGORY in "${CATEGORIES[@]}" ; do
+	for CATEGORY in "${@}" ; do
 
 		# Compare each pod's UID from before and now to identify which
 		# pods were rolled already, vs. which ones still need rolling
@@ -142,11 +160,11 @@ list_changed_pods()
 			read OLD_UID OLD < <(grep -e " ${POD}$" <<< "${OLD_PODS}") || true
 			read NEW_UID NEW < <(grep -e " ${POD}$" <<< "${NEW_PODS}") || true
 
-			# If the pod existed, and there's a change in the UID, then
+			# If the pod existed, and there's no change in the UID, then
 			# the pod needs to be rolled, so add it to the list!
-			[ -n "${OLD_UID}" ] && [ "${OLD_UID}" != "${NEW_UID}" ] && echo -e "${POD}"
-		done < <(kubectl get pods --selector "arkcase.com/deploy-${CATEGORY}=true" -o name | sed -e 's;^pod/;;g')
-	done | sort -u
+			[ -n "${OLD_UID}" ] && [ "${OLD_UID}" == "${NEW_UID}" ] && echo -e "${POD}"
+		done < <(kubectl get pods --selector "${DEPLOY_LABEL}-${CATEGORY}=true" -o name | sed -e 's;^pod/;;g')
+	done | sort -u | sed -e '/^\s*$/d'
 	return 0
 }
 
@@ -156,13 +174,20 @@ roll_pods_if_necessary()
 	local OLD_ARTIFACTS="${2}"
 	local OLD_PODS="${3}"
 
+	if [ -z "${DEPLOY_LABEL}" ] ; then
+		warn "No deployment label is set (or it's blank) - cannot apply smart pod rollovers"
+		return 0
+	fi
+
+	warn "Smart pod rollover will be computed using the deployment label ${DEPLOY_LABEL}"
+
 	# Get the list of changed categories
 	local CATEGORIES=()
-	readarray -t CATEGORIES < <(list_changed_categories "${RELEASE}" "${OLD_ARTIFACTS}")
+	readarray -t CATEGORIES < <(list_changed_categories "${RELEASE}" "${OLD_ARTIFACTS}" | sed -e '/^\s*$/d')
 
 	# If no categories changed, we do nothing because any pods that would
 	# need to be rolled due to template changes would have been rolled already...
-	if [ ${#CATEGORIES[@]} -gt 0 ] ; then
+	if [ ${#CATEGORIES[@]} -eq 0 ] ; then
 		ok "No changes in artifact categories!"
 		return 0
 	fi
@@ -174,7 +199,7 @@ roll_pods_if_necessary()
 	local NEW_PODS="$(list_pod_uids "${RELEASE}")"
 
 	local ROLL=()
-	readarray -t ROLL < <(list_changed_pods "${RELEASE}" "${OLD_PODS}" "${CATEGORIES[@]}")
+	readarray -t ROLL < <(list_changed_pods "${RELEASE}" "${OLD_PODS}" "${NEW_PODS}" "${CATEGORIES[@]}")
 
 	# rolled, we simply return
 	if [ ${#ROLL[@]} -eq 0 ] ; then
