@@ -101,6 +101,8 @@ list_changed_categories()
 
 	# If the sums are the same, we simply do nothing
 	[ "${OLD_ARTIFACTS}" == "${NEW_ARTIFACTS}" ] && return 0
+	[ -n "${OLD_ARTIFACTS}" ] || OLD_ARTIFACTS="{}"
+	[ -n "${NEW_ARTIFACTS}" ] || NEW_ARTIFACTS="{}"
 
 	# If they're not, we need to be a bit more nuanced
 	local OLD=""
@@ -109,7 +111,14 @@ list_changed_categories()
 	while read CATEGORY ; do
 		OLD="$(jq -r ".${CATEGORY}" <<< "${OLD_ARTIFACTS}")"
 		NEW="$(jq -r ".${CATEGORY}" <<< "${NEW_ARTIFACTS}")"
-		[ "${OLD}" == "${NEW}" ] || echo "${CATEGORY}"
+
+		# If the artifact category no longer exists, then
+		# we don't account for it as a changed category
+		[ -n "${NEW}" ] || continue
+
+		# This has changed (either didn't exist, or has a different
+		# checksum), so we account for it as a changed category
+		[ "${OLD}" != "${NEW}" ] && echo "${CATEGORY}"
 	done < <(jq -r '.art[0] * .art[1] | keys[]' <<< "{ \"art\": [${OLD_ARTIFACTS}, ${NEW_ARTIFACTS}]}" | sort -u)
 	return 0
 }
@@ -153,11 +162,15 @@ roll_pods_if_necessary()
 
 	# If no categories changed, we do nothing because any pods that would
 	# need to be rolled due to template changes would have been rolled already...
-	[ ${#CATEGORIES[@]} -gt 0 ] || return 0
+	if [ ${#CATEGORIES[@]} -gt 0 ] ; then
+		ok "No changes in artifact categories!"
+		return 0
+	fi
 
 	# We have a list of changed categories, so roll their pods
 	eyes "The following artifact categories have changed: [ ${CATEGORIES[@]} ]"
 
+	eyes "Searching for pods that consume the changed artifact categories..."
 	local NEW_PODS="$(list_pod_uids "${RELEASE}")"
 
 	local ROLL=()
