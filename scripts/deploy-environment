@@ -15,22 +15,6 @@ export PARTIAL_DEPLOYMENT
 
 set_or_default DEPLOY_LABEL "arkcase.com/deploys"
 
-if [ -n "${DEPLOY_LABEL}" ] ; then
-	eyes "Validating the deployment label [${DEPLOY_LABEL}]"
-	if [[ "${DEPLOY_LABEL}" =~ ^(([-a-zA-Z0-9.]{1,253})/)?(([a-zA-Z0-9][-a-zA-Z0-9_.]{0,45})?[a-zA-Z0-9])$ ]] ; then
-		PREFIX="${BASH_REMATCH[2]}"
-		NAME="${BASH_REMATCH[3]}"
-		if is_valid_hostname "${PREFIX}" ; then
-			ok "The deployment label is valid: [${DEPLOY_LABEL}]"
-		else
-			err "The deployment label's prefix [${PREFIX}] is not valid RFC-1123 hostname, ignoring it"
-			DEPLOY_LABEL=""
-		fi
-	else
-		DEPLOY_LABEL=""
-	fi
-fi
-
 execute()
 {
 	execute_unless DISABLE_DEPLOY "${@}"
@@ -107,7 +91,9 @@ get_artifacts_sum()
 list_pod_uids()
 {
 	local RELEASE="${1}"
-	local SELECTOR="app.kubernetes.io/instance=${RELEASE},${DEPLOY_LABEL}=true"
+	local EXTRA_SELECTOR="${2:-}"
+	[ -n "${EXTRA_SELECTOR}" ] && EXTRA_SELECTOR=",${EXTRA_SELECTOR}"
+	local SELECTOR="app.kubernetes.io/instance=${RELEASE}${EXTRA_SELECTOR}"
 	kubectl get pod --selector "${SELECTOR}" -o json | jq -r '.items[].metadata | .uid + " " + .name'
 }
 
@@ -168,18 +154,18 @@ list_changed_pods()
 	return 0
 }
 
-roll_pods_if_necessary()
+smart_rollover()
 {
 	local RELEASE="${1}"
 	local OLD_ARTIFACTS="${2}"
 	local OLD_PODS="${3}"
 
 	if [ -z "${DEPLOY_LABEL}" ] ; then
-		warn "No deployment label is set (or it's blank) - cannot apply smart pod rollovers"
+		warn "No smart rollover label is set (or it's blank) - cannot apply smart pod rollovers"
 		return 0
 	fi
 
-	warn "Smart pod rollover will be computed using the deployment label ${DEPLOY_LABEL}"
+	warn "Smart pod rollover will be computed using the smart rollover label ${DEPLOY_LABEL}"
 
 	# Get the list of changed categories
 	local CATEGORIES=()
@@ -196,7 +182,7 @@ roll_pods_if_necessary()
 	eyes "The following artifact categories have changed: [ ${CATEGORIES[@]} ]"
 
 	eyes "Searching for pods that consume the changed artifact categories..."
-	local NEW_PODS="$(list_pod_uids "${RELEASE}")"
+	local NEW_PODS="$(list_pod_uids "${RELEASE}" "${DEPLOY_LABEL}=true")"
 
 	local ROLL=()
 	readarray -t ROLL < <(list_changed_pods "${RELEASE}" "${OLD_PODS}" "${NEW_PODS}" "${CATEGORIES[@]}")
@@ -223,6 +209,21 @@ roll_pods_if_necessary()
 
 	# All's well that ends well!
 	ok "Rolled all pods dependent on the artifacts pod"
+	return 0
+}
+
+sanitize_label()
+{
+	local LABEL="${1}"
+
+	[[ "${LABEL}" =~ ^(([-a-zA-Z0-9.]{1,253})/)?(([a-zA-Z0-9][-a-zA-Z0-9_.]{0,45})?[a-zA-Z0-9])$ ]] || return 1
+
+	local PREFIX="${BASH_REMATCH[2]}"
+	local NAME="${BASH_REMATCH[3]}"
+
+	is_valid_hostname "${PREFIX}" || return 2
+
+	echo -n "${LABEL}"
 	return 0
 }
 
@@ -328,6 +329,17 @@ ensure_namespace_exists "${NAMESPACE}" || fail "Failed to ensure that the requir
 
 set -- "${HELM_ARGS[@]}"
 
+if [ -n "${DEPLOY_LABEL}" ] ; then
+	eyes "Validating the smart rollover label [${DEPLOY_LABEL}]..."
+	RC=0
+	DEPLOY_LABEL="$(sanitize_label "${DEPLOY_LABEL}")" || RC=${?}
+	case "${RC}" in
+		0 ) ok "The smart rollover label is valid!" ;;
+		1 ) err "The smart rollover label's syntax is not valid and it will be ignored" ;;
+		2 ) err "The smart rollover label's prefix is not valid RFC-1123 hostname, ignoring it" ;;
+	esac
+fi
+
 OLD_ARTIFACTS="$(get_artifacts_sum "${RELEASE}")"
 OLD_PODS="$(list_pod_uids "${RELEASE}")"
 
@@ -350,7 +362,7 @@ execute \
 
 if [ ${RC} -eq 0 ] ; then
 	ok "Deployment complete!"
-	roll_pods_if_necessary "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || err "Conditional pod rolling may have failed, tread carefully!"
+	smart_rollover "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || err "Conditional pod rolling may have failed, tread carefully!"
 	execute kubectl --namespace "${NAMESPACE}" get pods
 	exit ${RC}
 fi
