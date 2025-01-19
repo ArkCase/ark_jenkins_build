@@ -13,6 +13,8 @@ export DISABLE_DEPLOY
 set_as_boolean PARTIAL_DEPLOYMENT
 export PARTIAL_DEPLOYMENT
 
+set_as_boolean DISABLE_UPGRADE
+
 set_or_default DEPLOY_LABEL "arkcase.com/deploys"
 
 execute()
@@ -329,45 +331,49 @@ ensure_namespace_exists "${NAMESPACE}" || fail "Failed to ensure that the requir
 
 set -- "${HELM_ARGS[@]}"
 
-if [ -n "${DEPLOY_LABEL}" ] ; then
-	eyes "Validating the smart rollover label [${DEPLOY_LABEL}]..."
+if as_boolean "${DISABLE_UPGRADE}" ; then
+	err "In-place upgrade deployment is disabled, will uninstall and reinstall"
+else
+	if [ -n "${DEPLOY_LABEL}" ] ; then
+		eyes "Validating the smart rollover label [${DEPLOY_LABEL}]..."
+		RC=0
+		DEPLOY_LABEL="$(sanitize_label "${DEPLOY_LABEL}")" || RC=${?}
+		case "${RC}" in
+			0 ) ok "The smart rollover label is valid!" ;;
+			1 ) err "The smart rollover label's syntax is not valid and it will be ignored" ;;
+			2 ) err "The smart rollover label's prefix is not valid RFC-1123 hostname, ignoring it" ;;
+		esac
+	fi
+
+	OLD_ARTIFACTS="$(get_artifacts_sum "${RELEASE}")"
+	OLD_PODS="$(list_pod_uids "${RELEASE}")"
+
+	#
+	# First, try an in-place upgrade. If that fails, then undeploy and redeploy.
+	#
+	# Since we're using --wait, this will not exit until all the pods are ready,
+	# which allows us to analyze them safely and make a robust decision about
+	# which pods actually needed to be rolled, but weren't
+	#
 	RC=0
-	DEPLOY_LABEL="$(sanitize_label "${DEPLOY_LABEL}")" || RC=${?}
-	case "${RC}" in
-		0 ) ok "The smart rollover label is valid!" ;;
-		1 ) err "The smart rollover label's syntax is not valid and it will be ignored" ;;
-		2 ) err "The smart rollover label's prefix is not valid RFC-1123 hostname, ignoring it" ;;
-	esac
+	execute \
+		helm upgrade --install \
+			"${RELEASE}" "${CHART}" \
+			--namespace "${NAMESPACE}" \
+			--wait \
+			--timeout "${DEPLOY_TIMEOUT}" \
+			"${VALUES[@]}" \
+			"${@}" || RC=${?}
+
+	if [ ${RC} -eq 0 ] ; then
+		ok "Deployment complete!"
+		smart_rollover "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || err "Conditional pod rolling may have failed, tread carefully!"
+		execute kubectl --namespace "${NAMESPACE}" get pods
+		exit ${RC}
+	fi
+
+	err "In-place upgrade attempt failed (rc=${RC}), will try to uninstall and reinstall"
 fi
-
-OLD_ARTIFACTS="$(get_artifacts_sum "${RELEASE}")"
-OLD_PODS="$(list_pod_uids "${RELEASE}")"
-
-#
-# First, try an in-place upgrade. If that fails, then undeploy and redeploy.
-#
-# Since we're using --wait, this will not exit until all the pods are ready,
-# which allows us to analyze them safely and make a robust decision about
-# which pods actually needed to be rolled, but weren't
-#
-RC=0
-execute \
-	helm upgrade --install \
-		"${RELEASE}" "${CHART}" \
-		--namespace "${NAMESPACE}" \
-		--wait \
-		--timeout "${DEPLOY_TIMEOUT}" \
-		"${VALUES[@]}" \
-		"${@}" || RC=${?}
-
-if [ ${RC} -eq 0 ] ; then
-	ok "Deployment complete!"
-	smart_rollover "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || err "Conditional pod rolling may have failed, tread carefully!"
-	execute kubectl --namespace "${NAMESPACE}" get pods
-	exit ${RC}
-fi
-
-err "In-place upgrade attempt failed (rc=${RC}), will try to uninstall and reinstall"
 
 # The in-place upgrade failed ... we need to fully uninstall and
 # then re-install the application!
@@ -378,9 +384,6 @@ DISABLE_UNDEPLOY="${DISABLE_DEPLOY}" "${BASEDIR}/undeploy-environment" "${NAMESP
 # Execute the new installation, using install --replace
 # because we intend to be preserving history from our
 # uninstalls
-#
-# TODO: see above note re: Artemis rollout issues when clustering
-# is enabled
 RC=0
 execute \
 	helm install --replace \
