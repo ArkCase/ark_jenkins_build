@@ -17,6 +17,8 @@ set_as_boolean DISABLE_UPGRADE
 
 set_or_default DEPLOY_LABEL "arkcase.com/deploys"
 
+set_or_default HISTORY_MAX
+
 execute()
 {
 	execute_unless DISABLE_DEPLOY "${@}"
@@ -349,6 +351,20 @@ else
 	OLD_PODS="$(list_pod_uids "${RELEASE}")"
 
 	#
+	# Compute how many history items to keep
+	#
+	if ! [[ "${HISTORY_MAX}" =~ ^[1-9][0-9]*$ ]] ; then
+		case "${HISTORY_MAX,,}" in
+			"0" | "all" ) HISTORY_MAX="0" ;;
+			* ) HISTORY_MAX="" ;;
+		esac
+	fi
+
+	# Set the --history-max parameter
+	HISTORY_ARG=()
+	[ -n "${HISTORY_MAX}" ] && HISTORY_ARG=(--history-max "${HISTORY_MAX}")
+
+	#
 	# First, try an in-place upgrade. If that fails, then undeploy and redeploy.
 	#
 	# Since we're using --wait, this will not exit until all the pods are ready,
@@ -360,6 +376,7 @@ else
 		helm upgrade --install \
 			"${RELEASE}" "${CHART}" \
 			--namespace "${NAMESPACE}" \
+			"${HISTORY_ARG[@]}" \
 			--wait \
 			--timeout "${DEPLOY_TIMEOUT}" \
 			"${VALUES[@]}" \
