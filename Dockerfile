@@ -2,7 +2,7 @@
 # Basic Parameters
 #
 ARG PUBLIC_REGISTRY="public.ecr.aws"
-ARG VER="3.9.2"
+ARG VER="3.9.3"
 
 ARG BASE_REGISTRY="${PUBLIC_REGISTRY}"
 ARG BASE_REPO="arkcase/jenkins-build-base"
