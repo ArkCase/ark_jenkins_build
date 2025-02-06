@@ -67,7 +67,7 @@ sanitize_common_dirs()
 	done
 }
 
-get_artifacts_sum()
+get_global_sums()
 {
 	local RELEASE="${1}"
 	local SELECTOR="app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/name=app,app.kubernetes.io/part=artifacts"
@@ -105,10 +105,9 @@ list_changed_categories()
 {
 	local RELEASE="${1}"
 	local OLD_ARTIFACTS="${2}"
-	local NEW_ARTIFACTS="$(get_artifacts_sum "${RELEASE}")"
+	local NEW_ARTIFACTS="${3}"
 
 	# If the sums are the same, we simply do nothing
-	[ "${OLD_ARTIFACTS}" == "${NEW_ARTIFACTS}" ] && return 0
 	[ -n "${OLD_ARTIFACTS}" ] || OLD_ARTIFACTS="{}"
 	[ -n "${NEW_ARTIFACTS}" ] || NEW_ARTIFACTS="{}"
 
@@ -117,8 +116,8 @@ list_changed_categories()
 	local NEW=""
 	local CATEGORY=""
 	while read CATEGORY ; do
-		OLD="$(jq -r ".${CATEGORY}" <<< "${OLD_ARTIFACTS}")"
-		NEW="$(jq -r ".${CATEGORY}" <<< "${NEW_ARTIFACTS}")"
+		OLD="$(jq -er ".${CATEGORY}" <<< "${OLD_ARTIFACTS}")" || OLD=""
+		NEW="$(jq -er ".${CATEGORY}" <<< "${NEW_ARTIFACTS}")" || NEW=""
 
 		# If the artifact category no longer exists, then
 		# we don't account for it as a changed category
@@ -171,14 +170,23 @@ smart_rollover()
 
 	warn "Smart pod rollover will be computed using the smart rollover label ${DEPLOY_LABEL}"
 
+	local NEW_ARTIFACTS="$(get_global_sums "${RELEASE}")"
+	eyes "Old artifact checksum summaries:\n${OLD_ARTIFACTS}"
+	eyes "New artifact checksum summaries:\n${NEW_ARTIFACTS}"
+
+	if [ "${OLD_ARTIFACTS}" == "${NEW_ARTIFACTS}" ] ; then
+		ok "No changes in artifacts summaries! Will not roll over any additional pods"
+		return 0
+	fi
+
 	# Get the list of changed categories
 	local CATEGORIES=()
-	readarray -t CATEGORIES < <(list_changed_categories "${RELEASE}" "${OLD_ARTIFACTS}" | sed -e '/^\s*$/d')
+	readarray -t CATEGORIES < <(list_changed_categories "${RELEASE}" "${OLD_ARTIFACTS}" "${NEW_ARTIFACTS}" | sed -e '/^\s*$/d')
 
 	# If no categories changed, we do nothing because any pods that would
 	# need to be rolled due to template changes would have been rolled already...
 	if [ ${#CATEGORIES[@]} -eq 0 ] ; then
-		ok "No changes in artifact categories!"
+		ok "No changes in artifact categories! Will not roll over any additional pods"
 		return 0
 	fi
 
@@ -347,7 +355,7 @@ else
 		esac
 	fi
 
-	OLD_ARTIFACTS="$(get_artifacts_sum "${RELEASE}")"
+	OLD_ARTIFACTS="$(get_global_sums "${RELEASE}")"
 	OLD_PODS="$(list_pod_uids "${RELEASE}")"
 
 	#
