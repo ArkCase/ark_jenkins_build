@@ -77,6 +77,9 @@ get_global_sums()
 	# We try to run the sum on all existing pods
 	#
 	while read POD ; do
+		# First, wait for the pod to become ready ... up to 5 mins
+		kubectl wait --for condition=Ready pod "${POD}" --timeout=5m &>/dev/null || continue
+
 		# Run the sums. We do this in case networking is not
 		# available to us. We know kubectl *is*, so use that!
 		SUM="$(timeout 30 kubectl exec -it "${POD}" -- /usr/local/bin/global-sums 2>/dev/null)" || continue
@@ -87,9 +90,11 @@ get_global_sums()
 
 		# We're good to go, so return it!
 		echo -en "${SUM}"
-		break
+		return 0
 	done < <(kubectl get pod --selector "${SELECTOR}" -o name | sort)
-	return 0
+
+	# If we weren't able to get the sum, we must notify as much
+	return 1
 }
 
 list_pod_uids()
@@ -170,7 +175,14 @@ smart_rollover()
 
 	warn "Smart pod rollover will be computed using the smart rollover label ${DEPLOY_LABEL}"
 
-	local NEW_ARTIFACTS="$(get_global_sums "${RELEASE}")"
+	local RC=0
+	local NEW_ARTIFACTS="$(get_global_sums "${RELEASE}")" || RC=${?}
+	if [ ${RC} -ne 0 ] ; then
+		err "Failed to obtain the updated global sums for the release [${RELEASE}] (rc=${RC})"
+		return ${RC}
+	fi
+
+	# If we got the artifact sums, we can compare them!
 	eyes "Old artifact checksum summaries:\n${OLD_ARTIFACTS}"
 	eyes "New artifact checksum summaries:\n${NEW_ARTIFACTS}"
 
@@ -355,7 +367,8 @@ else
 		esac
 	fi
 
-	OLD_ARTIFACTS="$(get_global_sums "${RELEASE}")"
+	OLD_ARTIFACTS="$(get_global_sums "${RELEASE}")" || OLD_ARTIFACTS="{}"
+
 	OLD_PODS="$(list_pod_uids "${RELEASE}")"
 
 	#
@@ -391,10 +404,18 @@ else
 			"${@}" || RC=${?}
 
 	if [ ${RC} -eq 0 ] ; then
-		ok "Deployment complete!"
-		smart_rollover "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || err "Conditional pod rolling may have failed, tread carefully!"
-		execute kubectl --namespace "${NAMESPACE}" get pods
-		exit ${RC}
+
+		ok "Deployment complete! Attempting the conditional rollover"
+		smart_rollover "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || RC=${?}
+		if [ ${RC} -eq 0 ] ; then
+			ok "Conditional rollover seems to have worked!"
+			execute kubectl --namespace "${NAMESPACE}" get pods
+			# Not needed, but just in case ...
+			exit 0
+		fi
+
+		# Uh-oh ... Danger, Will Robinson!
+		err "Conditional rollover appears to have failed (rc=${RC})"
 	fi
 
 	err "In-place upgrade attempt failed (rc=${RC}), will try to uninstall and reinstall"
