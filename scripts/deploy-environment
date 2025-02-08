@@ -78,7 +78,7 @@ get_global_sums()
 	#
 	while read POD ; do
 		# First, wait for the pod to become ready ... up to 5 mins
-		kubectl wait --for condition=Ready pod "${POD}" --timeout=5m &>/dev/null || continue
+		kubectl wait --for condition=Ready "${POD}" --timeout=5m &>/dev/null || continue
 
 		# Run the sums. We do this in case networking is not
 		# available to us. We know kubectl *is*, so use that!
