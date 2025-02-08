@@ -176,7 +176,8 @@ smart_rollover()
 	warn "Smart pod rollover will be computed using the smart rollover label ${DEPLOY_LABEL}"
 
 	local RC=0
-	local NEW_ARTIFACTS="$(get_global_sums "${RELEASE}")" || RC=${?}
+	local NEW_ARTIFACTS=""
+	NEW_ARTIFACTS="$(get_global_sums "${RELEASE}")" || RC=${?}
 	if [ ${RC} -ne 0 ] ; then
 		err "Failed to obtain the updated global sums for the release [${RELEASE}] (rc=${RC})"
 		return ${RC}
@@ -367,7 +368,10 @@ else
 		esac
 	fi
 
-	OLD_ARTIFACTS="$(get_global_sums "${RELEASE}")" || OLD_ARTIFACTS="{}"
+	if ! OLD_ARTIFACTS="$(get_global_sums "${RELEASE}")" ; then
+		warn "Failed to fetch the old artifact checksums!"
+		OLD_ARTIFACTS="{}"
+	fi
 
 	OLD_PODS="$(list_pod_uids "${RELEASE}")"
 
