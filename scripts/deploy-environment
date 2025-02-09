@@ -177,9 +177,9 @@ smart_rollover()
 
 	local RC=0
 	local NEW_ARTIFACTS=""
-	NEW_ARTIFACTS="$(get_global_sums "${RELEASE}")" || RC=${?}
+	NEW_ARTIFACTS="$(get_global_sums "${RELEASE}" 2>&1)" || RC=${?}
 	if [ ${RC} -ne 0 ] ; then
-		err "Failed to obtain the updated global sums for the release [${RELEASE}] (rc=${RC})"
+		err "Failed to obtain the updated global sums for the release [${RELEASE}] (rc=${RC}):\n${NEW_ARTIFACTS}"
 		return ${RC}
 	fi
 
@@ -368,8 +368,10 @@ else
 		esac
 	fi
 
-	if ! OLD_ARTIFACTS="$(get_global_sums "${RELEASE}")" ; then
-		warn "Failed to fetch the old artifact checksums!"
+	RC=0
+	OLD_ARTIFACTS="$(get_global_sums "${RELEASE}" 2>&1)" || RC=${?}
+	if [ ${RC} -ne 0 ] ; then
+		warn "Failed to fetch the old artifact checksums (rc=${?}):\n${OLD_ARTIFACTS}"
 		OLD_ARTIFACTS="{}"
 	fi
 
