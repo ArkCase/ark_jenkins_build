@@ -13,6 +13,9 @@ export DISABLE_UNDEPLOY
 set_as_boolean WAIT_FOR_ATTACHMENTS
 export WAIT_FOR_ATTACHMENTS
 
+set_as_boolean DOWNSCALE_UNDEPLOY_FIRST
+export DOWNSCALE_UNDEPLOY_FIRST
+
 should_uninstall()
 {
 	local NAMESPACE="${1}"
@@ -77,10 +80,12 @@ if ! should_uninstall "${NAMESPACE}" "${RELEASE}" ; then
 	exit 0
 fi
 
-# Try to downscale first...
-DOWNSCALE_TIMEOUT="${UNDEPLOY_TIMEOUT}" \
-DISABLE_DOWNSCALE="${DISABLE_UNDEPLOY}" \
-"${BASEDIR}/downscale-environment" "${NAMESPACE}" "${RELEASE}" || exit ${?}
+# Try to downscale first...?
+if as_boolean "${DOWNSCALE_UNDEPLOY_FIRST}" ; then
+	DOWNSCALE_TIMEOUT="${UNDEPLOY_TIMEOUT}" \
+	DISABLE_DOWNSCALE="${DISABLE_UNDEPLOY}" \
+	"${BASEDIR}/downscale-environment" "${NAMESPACE}" "${RELEASE}" || exit ${?}
+fi
 
 # Delete the old installation, since it's the safest bet to ensure
 # that the correct resources, containers, and deployments are used
@@ -94,7 +99,7 @@ execute \
 	fail "The Helm undeployment has failed, please review the logs"
 
 # We don't care what happens here, really ...
-if "${WAIT_FOR_ATTACHMENTS}" ; then
+if as_boolean "${WAIT_FOR_ATTACHMENTS}" ; then
 	ATTACHMENT_WAIT_TIMEOUT="${UNDEPLOY_TIMEOUT}" \
 	DISABLE_ATTACHMENT_WAIT="${DISABLE_UNDEPLOY}" \
 	"${BASEDIR}/wait-for-pvc-attachments" "${NAMESPACE}" "${RELEASE}" || \
