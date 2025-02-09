@@ -36,7 +36,7 @@ execute()
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ --help | -h | -? ] [ --context context ] [ --namespace namespace | -n namespace ]" 1>&2
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ --help | -h | -? ] [ --context context ] [ --namespace namespace | -n namespace ] [ pvc-1 pvc-2 pvc-3 ... pvc-N ]" 1>&2
 	exit 1
 }
 
@@ -85,7 +85,18 @@ as_boolean "${NAMESPACE_SET}" && NSARGS=(--namespace "${NAMESPACE}")
 # Get all the PVCs in the currently default namespace
 say "👀 Fetching all the PVC data..."
 PVC_DATA="$(kubectl "${CTXARGS[@]}" "${NSARGS[@]}" get pvc -o json)"
-readarray -t PVCS < <(jq -r ".items[] .metadata.name" <<< "${PVC_DATA}" | sort)
+
+if [ ${#} -gt 0 ] ; then
+	doing "Scanning only for these PVCs: [ ${@} ]"
+	PVCS=()
+	for PVC in "${@}" ; do
+		is_valid_hostname_part "${PVC}" || fail "The PVC name [${PVC}] is not valid"
+		PVCS+=( "${PVC}" )
+	done
+else
+	readarray -t PVCS < <(jq -r ".items[] .metadata.name" <<< "${PVC_DATA}" | sort)
+fi
+
 [ ${#PVCS[@]} -gt 0 ] || quit "No PVCs found"
 
 say "👀 Fetching all the Node data on the cluster..."
@@ -112,21 +123,28 @@ for PVC in "${PVCS[@]}" ; do
 		PV_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_DATA}")"
 		if [ -n "${PV_INFO}" ] ; then
 			ATTACHMENT_INFO="$(jq -r ".items[] | select(.spec.source.persistentVolumeName == \"${PV}\")" <<< "${ATTACHMENT_DATA}")"
+
 			# If there's no attachment for this PV, we simply skip it
 			[ -n "${ATTACHMENT_INFO}" ] || continue
 
-			NODE="$(jq -r '.spec.nodeName // ""' <<< "${ATTACHMENT_INFO}")"
-			# An attachment without a node is also not of interest
-			[ -n "${NODE}" ] || continue
+			# There may be multiple nodes ... so account for that
 
-			ATTACHMENT="$(jq -r ".metadata.name" <<< "${ATTACHMENT_INFO}")"
+			while read ATTACHMENT ; do
+				THIS_ATTACHMENT_INFO="$(jq -r "select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_INFO}")"
 
-			NODE_INFO="$(jq -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
-			if [ -z "${NODE_INFO}" ] ; then
-				MISSING_NODE+=( "${NODE}" )
-				OK="false"
-				NODE="❌ ${NODE}"
-			fi
+				# An attachment without a node is also not of interest
+				NODE="$(jq -r '.spec.nodeName // ""' <<< "${THIS_ATTACHMENT_INFO}")"
+				[ -n "${NODE}" ] || continue
+
+				NODE_INFO="$(jq -r ".items[] | select(.metadata.name == \"${NODE}\")" <<< "${NODE_DATA}")"
+				if [ -z "${NODE_INFO}" ] ; then
+					MISSING_NODE+=( "${NODE}" )
+					OK="false"
+					NODE="❌ ${NODE}"
+				fi
+
+				say "\t${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
+			done < <(jq -r ".metadata.name" <<< "${ATTACHMENT_INFO}")
 		else
 			MISSING_PV+=( "${PV}" )
 			OK="false"
@@ -138,18 +156,15 @@ for PVC in "${PVCS[@]}" ; do
 		PVC="❌ ${PVC}"
 	fi
 
-	say "\t${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
-
 	"${OK}" && continue
 
 	FAILED+=( "${PVC}" )
 done
-if [ ${#FAILED[@]} -eq 0 ] ; then
-    ok "No broken PVC attachments were found!"
-    exit 0
-fi
+
+[ ${#FAILED[@]} -eq 0 ] && exit 0
 
 list_broken_items "broken PVCs" "${FAILED[@]}"
 list_broken_items "PVCs without a PV" "${PVC_WITHOUT_PV[@]}"
 list_broken_items "missing PVs" "${MISSING_PV[@]}"
 list_broken_items "missing Nodes" "${MISSING_NODE[@]}"
+exit 1
