@@ -110,9 +110,8 @@ list_pod_uids()
 
 list_changed_categories()
 {
-	local RELEASE="${1}"
-	local OLD_ARTIFACTS="${2}"
-	local NEW_ARTIFACTS="${3}"
+	local OLD_ARTIFACTS="${1}"
+	local NEW_ARTIFACTS="${2}"
 
 	# If the sums are the same, we simply do nothing
 	[ -n "${OLD_ARTIFACTS}" ] || OLD_ARTIFACTS="{}"
@@ -139,9 +138,10 @@ list_changed_categories()
 
 list_changed_pods()
 {
-	local RELEASE="${1}"
-	local OLD_PODS="${2}"
-	local NEW_PODS="${3}"
+	local NAMESPACE="${1}"
+	local RELEASE="${2}"
+	local OLD_PODS="${3}"
+	local NEW_PODS="${4}"
 	shift 3
 
 	local OLD=""
@@ -197,7 +197,7 @@ smart_rollover()
 
 	# Get the list of changed categories
 	local CATEGORIES=()
-	readarray -t CATEGORIES < <(list_changed_categories "${RELEASE}" "${OLD_ARTIFACTS}" "${NEW_ARTIFACTS}" | sed -e '/^\s*$/d')
+	readarray -t CATEGORIES < <(list_changed_categories "${OLD_ARTIFACTS}" "${NEW_ARTIFACTS}" | sed -e '/^\s*$/d')
 
 	# If no categories changed, we do nothing because any pods that would
 	# need to be rolled due to template changes would have been rolled already...
