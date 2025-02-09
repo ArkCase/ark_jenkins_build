@@ -69,7 +69,8 @@ sanitize_common_dirs()
 
 get_global_sums()
 {
-	local RELEASE="${1}"
+	local NAMESPACE="${1}"
+	local RELEASE="${2}"
 	local SELECTOR="app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/name=app,app.kubernetes.io/part=artifacts"
 	local POD=""
 
@@ -78,11 +79,11 @@ get_global_sums()
 	#
 	while read POD ; do
 		# First, wait for the pod to become ready ... up to 5 mins
-		kubectl wait --for condition=Ready "${POD}" --timeout=5m &>/dev/null || continue
+		kubectl --namespace "${NAMESPACE}" wait --for condition=Ready "${POD}" --timeout=5m &>/dev/null || continue
 
 		# Run the sums. We do this in case networking is not
 		# available to us. We know kubectl *is*, so use that!
-		SUM="$(timeout 30 kubectl exec -it "${POD}" -- /usr/local/bin/global-sums 2>/dev/null)" || continue
+		SUM="$(timeout 30 kubectl --namespace "${NAMESPACE}" exec -it "${POD}" -- /usr/local/bin/global-sums 2>/dev/null)" || continue
 
 		# The SUM must be valid JSON output
 		[ -n "${SUM}" ] || continue
@@ -91,7 +92,7 @@ get_global_sums()
 		# We're good to go, so return it!
 		echo -en "${SUM}"
 		return 0
-	done < <(kubectl get pod --selector "${SELECTOR}" -o name | sort)
+	done < <(kubectl --namespace "${NAMESPACE}" get pod --selector "${SELECTOR}" -o name | sort)
 
 	# If we weren't able to get the sum, we must notify as much
 	return 1
@@ -99,11 +100,12 @@ get_global_sums()
 
 list_pod_uids()
 {
-	local RELEASE="${1}"
+	local NAMESPACE="${1}"
+	local RELEASE="${2}"
 	local EXTRA_SELECTOR="${2:-}"
 	[ -n "${EXTRA_SELECTOR}" ] && EXTRA_SELECTOR=",${EXTRA_SELECTOR}"
 	local SELECTOR="app.kubernetes.io/instance=${RELEASE}${EXTRA_SELECTOR}"
-	kubectl get pod --selector "${SELECTOR}" -o json | jq -r '.items[].metadata | .uid + " " + .name'
+	kubectl --namespace "${NAMESPACE}" get pod --selector "${SELECTOR}" -o json | jq -r '.items[].metadata | .uid + " " + .name'
 }
 
 list_changed_categories()
@@ -157,16 +159,17 @@ list_changed_pods()
 			# If the pod existed, and there's no change in the UID, then
 			# the pod needs to be rolled, so add it to the list!
 			[ -n "${OLD_UID}" ] && [ "${OLD_UID}" == "${NEW_UID}" ] && echo -e "${POD}"
-		done < <(kubectl get pods --selector "${DEPLOY_LABEL}-${CATEGORY}=true" -o name | sed -e 's;^pod/;;g')
+		done < <(kubectl --namespace "${NAMESPACE}" get pods --selector "${DEPLOY_LABEL}-${CATEGORY}=true" -o name | sed -e 's;^pod/;;g')
 	done | sort -u | sed -e '/^\s*$/d'
 	return 0
 }
 
 smart_rollover()
 {
-	local RELEASE="${1}"
-	local OLD_ARTIFACTS="${2}"
-	local OLD_PODS="${3}"
+	local NAMESPACE="${1}"
+	local RELEASE="${2}"
+	local OLD_ARTIFACTS="${3}"
+	local OLD_PODS="${4}"
 
 	if [ -z "${DEPLOY_LABEL}" ] ; then
 		warn "No smart rollover label is set (or it's blank) - cannot apply smart pod rollovers"
@@ -177,7 +180,7 @@ smart_rollover()
 
 	local RC=0
 	local NEW_ARTIFACTS=""
-	NEW_ARTIFACTS="$(get_global_sums "${RELEASE}" 2>&1)" || RC=${?}
+	NEW_ARTIFACTS="$(get_global_sums "${NAMESPACE}" "${RELEASE}" 2>&1)" || RC=${?}
 	if [ ${RC} -ne 0 ] ; then
 		err "Failed to obtain the updated global sums for the release [${RELEASE}] (rc=${RC}):\n${NEW_ARTIFACTS}"
 		return ${RC}
@@ -207,10 +210,10 @@ smart_rollover()
 	eyes "The following artifact categories have changed: [ ${CATEGORIES[@]} ]"
 
 	eyes "Searching for pods that consume the changed artifact categories..."
-	local NEW_PODS="$(list_pod_uids "${RELEASE}" "${DEPLOY_LABEL}=true")"
+	local NEW_PODS="$(list_pod_uids "${NAMESPACE}" "${RELEASE}" "${DEPLOY_LABEL}=true")"
 
 	local ROLL=()
-	readarray -t ROLL < <(list_changed_pods "${RELEASE}" "${OLD_PODS}" "${NEW_PODS}" "${CATEGORIES[@]}")
+	readarray -t ROLL < <(list_changed_pods "${NAMESPACE}" "${RELEASE}" "${OLD_PODS}" "${NEW_PODS}" "${CATEGORIES[@]}")
 
 	# rolled, we simply return
 	if [ ${#ROLL[@]} -eq 0 ] ; then
@@ -220,14 +223,14 @@ smart_rollover()
 
 	# And ... roll!!
 	doing "These pods need to be rolled due to deployment artifact changes: [ ${ROLL[@]} ]"
-	if ! execute kubectl delete pod "${ROLL[@]}" --wait --timeout 5m ; then
+	if ! execute kubectl --namespace "${NAMESPACE}" delete pod "${ROLL[@]}" --wait --timeout 5m ; then
 		err "Pod roll timed out - the deployment may end up unstable..."
 		return 1
 	fi
 
 	# Now we wait ...
 	waiting "Wait for the rolled pods to become ready again..."
-	if ! execute kubectl wait --for=condition=Ready pod "${ROLL[@]}" --timeout 5m ; then
+	if ! execute kubectl --namespace "${NAMESPACE}" wait --for=condition=Ready pod "${ROLL[@]}" --timeout 5m ; then
 		err "Failed to wait for the rolled pods to become initialized"
 		return 1
 	fi
@@ -369,13 +372,13 @@ else
 	fi
 
 	RC=0
-	OLD_ARTIFACTS="$(get_global_sums "${RELEASE}" 2>&1)" || RC=${?}
+	OLD_ARTIFACTS="$(get_global_sums "${NAMESPACE}" "${RELEASE}" 2>&1)" || RC=${?}
 	if [ ${RC} -ne 0 ] ; then
-		warn "Failed to fetch the old artifact checksums (rc=${?}):\n${OLD_ARTIFACTS}"
+		warn "Failed to fetch the old artifact checksums (rc=${RC}):\n${OLD_ARTIFACTS}"
 		OLD_ARTIFACTS="{}"
 	fi
 
-	OLD_PODS="$(list_pod_uids "${RELEASE}")"
+	OLD_PODS="$(list_pod_uids "${NAMESPACE}" "${RELEASE}")"
 
 	#
 	# Compute how many history items to keep
@@ -412,7 +415,7 @@ else
 	if [ ${RC} -eq 0 ] ; then
 
 		ok "Deployment complete! Attempting the conditional rollover"
-		smart_rollover "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || RC=${?}
+		smart_rollover "${NAMESPACE}" "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || RC=${?}
 		if [ ${RC} -eq 0 ] ; then
 			ok "Conditional rollover seems to have worked!"
 			execute kubectl --namespace "${NAMESPACE}" get pods
