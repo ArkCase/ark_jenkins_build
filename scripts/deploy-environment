@@ -142,7 +142,7 @@ list_changed_pods()
 	local RELEASE="${2}"
 	local OLD_PODS="${3}"
 	local NEW_PODS="${4}"
-	shift 3
+	shift 4
 
 	local OLD=""
 	local OLD_UID=""
