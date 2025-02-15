@@ -183,7 +183,8 @@ smart_rollover()
 	NEW_ARTIFACTS="$(get_global_sums "${NAMESPACE}" "${RELEASE}" 2>&1)" || RC=${?}
 	if [ ${RC} -ne 0 ] ; then
 		err "Failed to obtain the updated global sums for the release [${RELEASE}] (rc=${RC}):\n${NEW_ARTIFACTS}"
-		return ${RC}
+		warn "Cannot process a smart rollover with the available information, must assume the deployment is complete"
+		return 0
 	fi
 
 	# If we got the artifact sums, we can compare them!
