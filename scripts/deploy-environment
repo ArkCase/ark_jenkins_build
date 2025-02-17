@@ -79,27 +79,28 @@ roll_artifact_pods()
 
 	local RESOURCES="statefulset,deployment,replicaset,daemonset"
 
-	# The deployment - in place or full - will have fully rolled all pods,
-	# or not have rolled a single one. Thus: either these lists are identical
-	# because no pods were rolled, or they're not in which case all pods were
-	# rolled. As a result, we only have to act if the lists are identical.
-	if [ "${OLD_ARTIFACT_PODS}" == "${NEW_ARTIFACT_PODS}" ] ; then
-		local RC=0
-		local OUT=""
-		running "Rolling the artifacts pods to ensure any new artifacts take hold"
-		OUT="$(kubectl --namespace "${NAMESPACE}" rollout restart "${RESOURCES}" --selector "${SELECTOR}" 2>&1)" || RC=${?}
-		if [ ${RC} -ne 0 ] ; then
-			err "Failed to roll the artifacts pod(s) (rc=${RC}):\n${OUT}"
-			return 1
-		fi
-
-		sleeping "Waiting for the rolled artifacts pods to become ready again..."
-		OUT="$(kubectl --namespace "${NAMESPACE}" rollout status "${RESOURCES}" --selector "${SELECTOR}" --timeout=5m 2>&1)" || RC=${?}
-		if [ ${RC} -ne 0 ] ; then
-			err "Timed out waiting for the rolled artifacts pod(s) to become ready (rc=${RC}):\n${OUT}"
-			return 1
-		fi
+	# By the time this function is called, all pods will have been rolled
+	# by the deployment that are going to be rolled. Thus, we need to verify
+	# that the artifacts pod was one of them. If it wasn't, then we have to
+	# roll it to ensure that any new artifacts become active and are consumed
+	#
+	# These two will only be the same if none of the artifacts pods were rolled.
+	# Otherwise, these will not match, and thus we won't need to do anything else.
+	if [ "${OLD_ARTIFACT_PODS}" != "${NEW_ARTIFACT_PODS}" ] ; then
+		ok "The artifacts pods have already been rolled, no need to roll them again!"
+		return 1
 	fi
+
+	local RC=0
+	local OUT=""
+
+	running "Rolling the artifacts pods to ensure any new artifacts take hold"
+	OUT="$(kubectl --namespace "${NAMESPACE}" rollout restart "${RESOURCES}" --selector "${SELECTOR}" 2>&1)" || RC=${?}
+	[ ${RC} -eq 0 ] || fail "Failed to roll the artifacts pod(s) (rc=${RC}):\n${OUT}"
+
+	sleeping "Waiting for the rolled artifacts pods to become ready again..."
+	OUT="$(kubectl --namespace "${NAMESPACE}" rollout status "${RESOURCES}" --selector "${SELECTOR}" --timeout=5m 2>&1)" || RC=${?}
+	[ ${RC} -eq 0 ] || fail "Timed out waiting for the rolled artifacts pod(s) to become ready (rc=${RC}):\n${OUT}"
 
 	ok "The artifact pods were rolled and are ready!"
 	return 0
@@ -264,6 +265,9 @@ smart_rollover()
 
 	eyes "Searching for pods that consume the changed artifact categories..."
 	local NEW_PODS="$(list_consumer_uids "${NAMESPACE}" "${RELEASE}")"
+
+	eyes "Old consumer pod UIDs:\n${OLD_PODS}"
+	eyes "New consumer pod UIDs:\n${NEW_PODS}"
 
 	local ROLL=()
 	readarray -t ROLL < <(list_changed_pods "${NAMESPACE}" "${RELEASE}" "${OLD_PODS}" "${NEW_PODS}" "${CATEGORIES[@]}")
@@ -467,11 +471,19 @@ else
 			"${@}" || RC=${?}
 
 	if [ ${RC} -eq 0 ] ; then
-
-		roll_artifact_pods "${NAMESPACE}" "${RELEASE}" "${OLD_ARTIFACT_PODS}" || \
-			warn "The artifacts pods couldn't be rolled - smart rollover may not work as intended"
-
 		ok "Deployment complete! Attempting the conditional rollover"
+
+		# If the artifact pods had to be rolled, it means we have to update our
+		# pod UIDs b/c the consumer pods must now also be rolled. We keep the
+		# old artifact hashes, though, since the new artifact hashes will be
+		# computed based on the newly-rolled artifacts pods
+		roll_artifact_pods "${NAMESPACE}" "${RELEASE}" "${OLD_ARTIFACT_PODS}" && \
+			OLD_PODS="$(list_consumer_uids "${NAMESPACE}" "${RELEASE}")"
+
+		#
+		# We're ready! Let's try to be smart about this ...
+		#
+		RC=0
 		smart_rollover "${NAMESPACE}" "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || RC=${?}
 		if [ ${RC} -eq 0 ] ; then
 			ok "Conditional rollover seems to have worked!"
@@ -481,10 +493,10 @@ else
 		fi
 
 		# Uh-oh ... Danger, Will Robinson!
-		err "Conditional rollover appears to have failed (rc=${RC})"
+		err "Smart pod rollover appears to have failed (rc=${RC}), will try to uninstall and reinstall"
+	else
+		err "In-place upgrade attempt failed (rc=${RC}), will try to uninstall and reinstall"
 	fi
-
-	err "In-place upgrade attempt failed (rc=${RC}), will try to uninstall and reinstall"
 fi
 
 # The in-place upgrade failed ... we need to fully uninstall and
