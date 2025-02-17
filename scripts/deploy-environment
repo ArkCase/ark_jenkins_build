@@ -177,6 +177,7 @@ smart_rollover()
 	fi
 
 	warn "Smart pod rollover will be computed using the smart rollover label ${DEPLOY_LABEL}"
+	eyes "Old artifact checksum summaries:\n${OLD_ARTIFACTS}"
 
 	local RC=0
 	local NEW_ARTIFACTS=""
@@ -188,7 +189,6 @@ smart_rollover()
 	fi
 
 	# If we got the artifact sums, we can compare them!
-	eyes "Old artifact checksum summaries:\n${OLD_ARTIFACTS}"
 	eyes "New artifact checksum summaries:\n${NEW_ARTIFACTS}"
 
 	if [ "${OLD_ARTIFACTS}" == "${NEW_ARTIFACTS}" ] ; then
