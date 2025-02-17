@@ -99,7 +99,7 @@ roll_artifact_pods()
 	[ ${RC} -eq 0 ] || fail "Failed to roll the artifacts pod(s) (rc=${RC}):\n${OUT}"
 
 	sleeping "Waiting for the rolled artifacts pods to become ready again..."
-	OUT="$(kubectl --namespace "${NAMESPACE}" rollout status "${RESOURCES}" --selector "${SELECTOR}" --timeout=5m 2>&1)" || RC=${?}
+	OUT="$(kubectl --namespace "${NAMESPACE}" rollout status "${RESOURCES}" --selector "${SELECTOR}" --timeout "${DEPLOY_TIMEOUT}" 2>&1)" || RC=${?}
 	[ ${RC} -eq 0 ] || fail "Timed out waiting for the rolled artifacts pod(s) to become ready (rc=${RC}):\n${OUT}"
 
 	ok "The artifact pods were rolled and are ready!"
@@ -287,7 +287,7 @@ smart_rollover()
 
 	# Now we wait ...
 	waiting "Wait for the rolled pods to become ready again..."
-	if ! execute kubectl --namespace "${NAMESPACE}" wait --for=condition=Ready pod "${ROLL[@]}" --timeout 5m ; then
+	if ! execute kubectl --namespace "${NAMESPACE}" wait --for=condition=Ready pod "${ROLL[@]}" --timeout "${DEPLOY_TIMEOUT}" ; then
 		err "Failed to wait for the rolled pods to become initialized"
 		return 1
 	fi
