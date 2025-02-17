@@ -141,7 +141,7 @@ list_pod_uids()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	local EXTRA_SELECTOR="${2:-}"
+	local EXTRA_SELECTOR="${3:-}"
 	[ -n "${EXTRA_SELECTOR}" ] && EXTRA_SELECTOR=",${EXTRA_SELECTOR}"
 	local SELECTOR="app.kubernetes.io/instance=${RELEASE}${EXTRA_SELECTOR}"
 	kubectl --namespace "${NAMESPACE}" get pod --selector "${SELECTOR}" -o json | jq -r '.items[].metadata | .uid + " " + .name'
