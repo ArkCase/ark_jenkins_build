@@ -1,0 +1,63 @@
+#!/bin/bash
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
+
+set -euo pipefail
+. /.functions
+
+set_or_default AWAIT_TIMEOUT "20m"
+
+set_as_boolean DISABLE_AWAIT
+export DISABLE_AWAIT
+
+execute()
+{
+	execute_unless DISABLE_AWAIT "${@}"
+	return ${?}
+}
+
+is_deployed()
+{
+	local NAMESPACE="${1}"
+	local RELEASE="${2}"
+	execute helm get --namespace "${NAMESPACE}" all "${RELEASE}" &>/dev/null
+	return ${?}
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_SOURCE:-${0}} [namespace] release" 1>&2
+	exit 1
+}
+
+[ ${#} -ge 1 ] && [ ${#} -le 2 ] || usage
+
+if [ ${#} -eq 1 ] ; then
+	NAMESPACE="$(kubectl config view --minify -o jsonpath="{..namespace}")"
+	[ -n "${NAMESPACE}" ] || NAMESPACE="default"
+else
+	NAMESPACE="${1}"
+	shift
+fi
+is_valid_hostname_part "${NAMESPACE}" || fail "Invalid namespace name [${NAMESPACE}]"
+
+RELEASE="${1}"
+is_valid_hostname_part "${RELEASE}" || fail "Invalid release name [${RELEASE}]"
+
+is_deployed "${NAMESPACE}" "${RELEASE}" || fail "The release [${RELEASE}] is not deployed into namespace [${NAMESPACE}] ... can't wait for it to complete boot-up"
+
+sleeping "Waiting for the environment to boot up (for up to ${AWAIT_TIMEOUT})..."
+RC=0
+execute \
+	kubectl \
+		--namespace "${NAMESPACE}" \
+		wait --for condition=Ready \
+		pod --selector "app.kubernetes.io/instance=${RELEASE},arkcase.com/task=work" \
+		--timeout "${AWAIT_TIMEOUT}" || RC=${?}
+if [ ${RC} -eq 0 ] ; then
+	ok "Deployment ready!"
+else
+	fail "Timed out waiting for the deployment to compete boot-up (rc=${RC}), please review the pod logs"
+fi
+execute kubectl --namespace "${NAMESPACE}" get pods
+exit ${RC}
