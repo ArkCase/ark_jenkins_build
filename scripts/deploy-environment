@@ -72,8 +72,7 @@ roll_artifact_pods()
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
 	local OLD_ARTIFACT_PODS="${3}"
-	local EXTRA_SELECTOR="app.kubernetes.io/name=app,app.kubernetes.io/part=artifacts"
-	local SELECTOR="app.kubernetes.io/instance=${RELEASE},${EXTRA_SELECTOR}"
+	local SELECTOR="$(render_artifacts_selector "${RELEASE}")"
 
 	local NEW_ARTIFACT_PODS="$(list_artifact_uids "${NAMESPACE}" "${RELEASE}")"
 
@@ -106,11 +105,26 @@ roll_artifact_pods()
 	return 0
 }
 
+ARTIFACTS_EXTRA_SELECTOR="app.kubernetes.io/name=app,app.kubernetes.io/part=artifacts"
+
+render_selector()
+{
+	local RELEASE="${1}"
+	local EXTRA_SELECTOR="${2:-}"
+	[ -n "${EXTRA_SELECTOR}" ] && EXTRA_SELECTOR=",${EXTRA_SELECTOR}"
+	echo -n "app.kubernetes.io/instance=${RELEASE}${EXTRA_SELECTOR}"
+}
+
+render_artifacts_selector()
+{
+	render_selector "${1}" "${ARTIFACTS_EXTRA_SELECTOR}"
+}
+
 get_global_sums()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	local SELECTOR="app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/name=app,app.kubernetes.io/part=artifacts"
+	local SELECTOR="$(render_artifacts_selector "${RELEASE}")"
 	local POD=""
 
 	#
@@ -141,9 +155,7 @@ list_pod_uids()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	local EXTRA_SELECTOR="${3:-}"
-	[ -n "${EXTRA_SELECTOR}" ] && EXTRA_SELECTOR=",${EXTRA_SELECTOR}"
-	local SELECTOR="app.kubernetes.io/instance=${RELEASE}${EXTRA_SELECTOR}"
+	local SELECTOR="$(render_selector "${RELEASE}" "${3:-}")"
 	kubectl --namespace "${NAMESPACE}" get pod --selector "${SELECTOR}" -o json | jq -r '.items[].metadata | .uid + " " + .name'
 }
 
@@ -151,7 +163,7 @@ list_artifact_uids()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	list_pod_uids "${NAMESPACE}" "${RELEASE}" "app.kubernetes.io/name=app,app.kubernetes.io/part=artifacts"
+	list_pod_uids "${NAMESPACE}" "${RELEASE}" "${ARTIFACTS_EXTRA_SELECTOR}"
 }
 
 list_consumer_uids()
@@ -272,7 +284,7 @@ smart_rollover()
 	local ROLL=()
 	readarray -t ROLL < <(list_changed_pods "${NAMESPACE}" "${RELEASE}" "${OLD_PODS}" "${NEW_PODS}" "${CATEGORIES[@]}")
 
-	# rolled, we simply return
+	# If they're already rolled, we simply return
 	if [ ${#ROLL[@]} -eq 0 ] ; then
 		ok "All pods that needed to be rolled have already been rolled!"
 		return 0
@@ -280,20 +292,18 @@ smart_rollover()
 
 	# And ... roll!!
 	doing "These pods need to be rolled due to deployment artifact changes: [ ${ROLL[@]} ]"
-	if ! execute kubectl --namespace "${NAMESPACE}" delete pod "${ROLL[@]}" --wait --timeout 5m ; then
-		err "Pod roll timed out - the deployment may end up unstable..."
+	local RC=0
+	execute kubectl --namespace "${NAMESPACE}" delete pod "${ROLL[@]}" || RC=${?}
+	if [ ${RC} -ne 0 ] ; then
+		err "Failed to roll the unchanged pods (rc=${RC})"
 		return 1
 	fi
 
-	# Now we wait ...
-	waiting "Wait for the rolled pods to become ready again..."
-	if ! execute kubectl --namespace "${NAMESPACE}" wait --for=condition=Ready pod "${ROLL[@]}" --timeout "${DEPLOY_TIMEOUT}" ; then
-		err "Failed to wait for the rolled pods to become initialized"
-		return 1
-	fi
+	# Here we used to wait for them to become ready. That happens elsewhere now so
+	# we don't care and we don't wait anymore.
 
 	# All's well that ends well!
-	ok "Rolled all pods dependent on the artifacts pod"
+	ok "Rolled all pods dependent on the modified artifacts: [ ${ROLL[@]} ]"
 	return 0
 }
 
@@ -455,18 +465,12 @@ else
 	#
 	# First, try an in-place upgrade. If that fails, then undeploy and redeploy.
 	#
-	# Since we're using --wait, this will not exit until all the pods are ready,
-	# which allows us to analyze them safely and make a robust decision about
-	# which pods actually needed to be rolled, but weren't
-	#
 	RC=0
 	execute \
 		helm upgrade --install \
 			"${RELEASE}" "${CHART}" \
 			--namespace "${NAMESPACE}" \
 			"${HISTORY_ARG[@]}" \
-			--wait \
-			--timeout "${DEPLOY_TIMEOUT}" \
 			"${VALUES[@]}" \
 			"${@}" || RC=${?}
 
@@ -483,20 +487,15 @@ else
 		#
 		# We're ready! Let's try to be smart about this ...
 		#
-		RC=0
-		smart_rollover "${NAMESPACE}" "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || RC=${?}
-		if [ ${RC} -eq 0 ] ; then
-			ok "Conditional rollover seems to have worked!"
-			execute kubectl --namespace "${NAMESPACE}" get pods
-			# Not needed, but just in case ...
-			exit 0
-		fi
+		smart_rollover "${NAMESPACE}" "${RELEASE}" "${OLD_ARTIFACTS}" "${OLD_PODS}" || \
+			fail "Smart pod rollover appears to have failed (rc=${?}), please verify the state of the deployment and roll any stale pods manually if necessary"
 
-		# Uh-oh ... Danger, Will Robinson!
-		err "Smart pod rollover appears to have failed (rc=${RC}), will try to uninstall and reinstall"
-	else
-		err "In-place upgrade attempt failed (rc=${RC}), will try to uninstall and reinstall"
+		ok "Conditional rollover seems to have worked!"
+		exit 0
 	fi
+
+	# The Helm Upgrade ran into issues, so we MUST do the full uninstall-reinstall cycle
+	err "In-place upgrade attempt failed (rc=${RC}), will try to uninstall and reinstall"
 fi
 
 # The in-place upgrade failed ... we need to fully uninstall and
@@ -508,22 +507,12 @@ DISABLE_UNDEPLOY="${DISABLE_DEPLOY}" "${BASEDIR}/undeploy-environment" "${NAMESP
 # Execute the new installation, using install --replace
 # because we intend to be preserving history from our
 # uninstalls
-RC=0
 execute \
 	helm install --replace \
 		"${RELEASE}" "${CHART}" \
 		--namespace "${NAMESPACE}" \
-		--wait \
-		--timeout "${DEPLOY_TIMEOUT}" \
 		"${VALUES[@]}" \
-		"${@}" || RC=${?}
+		"${@}" || fail "The Helm deployment has failed (rc=${?}), please review the logs"
 
-if [ ${RC} -eq 0 ] ; then
-	ok "Deployment complete!"
-else
-	# Something went wrong, try to offer up more information
-	err "The Helm deployment has failed (rc=${RC}), please review the logs"
-fi
-
-execute kubectl --namespace "${NAMESPACE}" get pods
-exit ${RC}
+ok "Deployment complete!"
+exit 0
