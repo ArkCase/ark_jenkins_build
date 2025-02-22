@@ -57,7 +57,7 @@ execute \
 if [ ${RC} -eq 0 ] ; then
 	ok "Deployment ready!"
 else
-	fail "Timed out waiting for the deployment to compete boot-up (rc=${RC}), please review the pod logs"
+	err "Timed out waiting for the deployment to compete boot-up (rc=${RC}), please review the pod logs"
 fi
 execute kubectl --namespace "${NAMESPACE}" get pods
 exit ${RC}
