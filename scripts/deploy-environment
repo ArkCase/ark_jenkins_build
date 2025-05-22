@@ -76,7 +76,7 @@ roll_artifact_pods()
 
 	local NEW_ARTIFACT_PODS="$(list_artifact_uids "${NAMESPACE}" "${RELEASE}")"
 
-	local RESOURCES="statefulset,deployment,replicaset,daemonset"
+	local RESOURCES="statefulset,deployment,daemonset"
 
 	# By the time this function is called, all pods will have been rolled
 	# by the deployment that are going to be rolled. Thus, we need to verify
