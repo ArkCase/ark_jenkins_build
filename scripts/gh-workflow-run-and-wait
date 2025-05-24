@@ -47,7 +47,7 @@ BRANCH=()
 if [ ${#} -ge 1 ] ; then
 	# This parameter is either the branch name (no = sign) or
 	# the first parameter spec
-	if [[ "${1}" =~ ^[0-9a-zA-Z_]+=.*$ ]] ; then
+	if [[ ! "${1}" =~ ^[0-9a-zA-Z_]+=.*$ ]] ; then
 		BRANCH=(--ref "${1}")
 		[ -n "${BRANCH}" ] || fail "The branch name may not be an empty string"
 		shift
