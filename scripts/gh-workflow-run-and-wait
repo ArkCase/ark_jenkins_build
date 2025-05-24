@@ -83,24 +83,12 @@ ATTEMPT=0
 while true ; do
 	(( ++ATTEMPT ))
 	if [ ${ATTEMPT} -gt 1 ] ; then
-		sleeping "Status check was inconclusive, will retry after ${RETRY_DELAY}"
 		sleep "${RETRY_DELAY}" || fail "Interrupted while waiting to try attempt # ${ATTEMPT}"
 	fi
 
-	gh-workflow-watch "${REPO[@]}" "${WORKFLOW}" "${RUN_ID}" && break
+	RUN_STATUS="$(gh-workflow-run-status "${REPO[@]}" "${WORKFLOW}" "${RUN_ID}")" || continue
 
-	# Let's make sure the run is finished. Sometimes,
-	# network hiccups can cause the watch to fail, but
-	# the run is still active and we can continue
-	# following it if we just reconnect ... so try that
-	OK="false"
-	for S in 1 2 3 4 5 6 ; do
-		RUN_STATUS="$(gh-workflow-run-status "${REPO[@]}" "${WORKFLOW}" "${RUN_ID}")" && OK="true" && break
-
-		# If we couldn't get the RUN_STATUS, we sleep for a bit and try again
-		sleep "${RETRY_DELAY}" || fail "Interrupted while waiting to re-fetch the run status during attempt # ${S}"
-	done
-	as_boolean "${OK}" || fail "Failed to re-fetch the workflow run status after several attempts"
+	jq -r <<< "${RUN_STATUS}" &>/dev/null || continue
 
 	STATUS="$(jq -r '.status // "unknown"' <<< "${RUN_STATUS}")" || fail "Failed to parse the run status string: [${RUN_STATUS}]"
 	[ "${STATUS,,}" == "completed" ] || continue
@@ -109,6 +97,13 @@ while true ; do
 	case "${CONCLUSION,,}" in
 		neutral | skipped | success ) break ;;
 	esac
-	fail "The workflow has completed with an unsuccessful status: [${CONCLUSION}]"
+
+	RC=0
+	gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --exit-status &>/dev/null || RC="${?}"
+	[ ${RC} -eq 0 ] && break
+
+	# Always show the full log
+	fail "The workflow has completed with an unsuccessful status (rc=${RC}): [${CONCLUSION}]"
+	gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --log
 done
 quit "The workflow has completed successfully!"
