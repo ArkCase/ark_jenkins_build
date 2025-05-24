@@ -1,0 +1,114 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+usage()
+{
+	[ ${#} -eq 0 ] || echo -e "❌ ${@}\n"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} repository workflow [ branch ] [ param1=value1 param2=value2 ... paramN=valueN ]"
+	echo -e ""
+	echo -e "\tYou can use '.' as teh repository name to identify the GitHub repository from the current directory's checkout"
+	exit 1
+}
+
+ARGS="$(getopt -o "h?" -l "help" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}")" || usage
+
+eval set -- "${ARGS}"
+
+while true ; do
+	case "${1}" in
+		--help | -h | "-?" ) usage ;;
+
+		-- ) shift ; break ;;
+
+		* ) usage ;;
+	esac
+done
+
+[ ${#} -ge 2 ] || usage "You must at least specify the repository and the workflow"
+
+REPO="${1}"
+[ -n "${REPO}" ] || fail "The repository may not be an empty string"
+if [ "${REPO}" == "." ] ; then
+	REPO=()
+	REPO_PARAM=()
+else
+	REPO_PARAM=(--repo "${REPO}")
+	REPO=("${REPO}")
+fi
+shift
+
+WORKFLOW="${1}"
+[ -n "${WORKFLOW}" ] || fail "The workflow may not be an empty string"
+shift
+
+BRANCH=()
+if [ ${#} -ge 1 ] ; then
+	# This parameter is either the branch name (no = sign) or
+	# the first parameter spec
+	if [[ "${1}" =~ ^[0-9a-zA-Z_]+=.*$ ]] ; then
+		BRANCH=(--ref "${1}")
+		[ -n "${BRANCH}" ] || fail "The branch name may not be an empty string"
+		shift
+	fi
+fi
+
+#
+# Parse out the parameter values to be sent for the build
+#
+PARAMS=()
+for p in "${@}" ; do
+	[ -z "${p}" ] && continue
+	[[ "${p}" =~ ^[0-9a-zA-Z_]+=.*$ ]] || { warn "The parameter specification [${p}] is not valid - must be in the form name=value" ; continue ; }
+	PARAMS+=(-f "${p}")
+done
+
+GH_USER_FLAGS=()
+[ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
+
+LAUNCH_RESULT="$(gh-workflow-run "${REPO_PARAM[@]}" "${BRANCH[@]}" "${WORKFLOW}" "${PARAMS[@]}")" || exit ${?}
+
+LAUNCH_RESULT="$(echo -n "${LAUNCH_RESULT}" | yaml2json)" || fail "Failed to convert the gh-workflow-run output to JSON"
+
+RUN_URL="$(jq -r '.runUrl // ""' <<< "${LAUNCH_RESULT}")"
+[ -n "${RUN_URL}" ] && eyes "The GigHub run can be tracked here: ${RUN_URL}"
+
+RUN_ID="$(jq -r '.runId // ""' <<< "${LAUNCH_RESULT}")"
+[ -n "${RUN_ID}" ] || fail "Failed to get the run ID for the launched job"
+
+set_or_default RETRY_DELAY "15s"
+
+ATTEMPT=0
+while true ; do
+	(( ++ATTEMPT ))
+	if [ ${ATTEMPT} -gt 1 ] ; then
+		sleeping "Status check was inconclusive, will retry after ${RETRY_DELAY}"
+		sleep "${RETRY_DELAY}" || fail "Interrupted while waiting to try attempt # ${ATTEMPT}"
+	fi
+
+	gh-workflow-watch "${REPO[@]}" "${WORKFLOW}" "${RUN_ID}" && break
+
+	# Let's make sure the run is finished. Sometimes,
+	# network hiccups can cause the watch to fail, but
+	# the run is still active and we can continue
+	# following it if we just reconnect ... so try that
+	OK="false"
+	for S in 1 2 3 4 5 6 ; do
+		RUN_STATUS="$(gh-workflow-run-status "${REPO[@]}" "${WORKFLOW}" "${RUN_ID}")" && OK="true" && break
+
+		# If we couldn't get the RUN_STATUS, we sleep for a bit and try again
+		sleep "${RETRY_DELAY}" || fail "Interrupted while waiting to re-fetch the run status during attempt # ${S}"
+	done
+	as_boolean "${OK}" || fail "Failed to re-fetch the workflow run status after several attempts"
+
+	STATUS="$(jq -r '.status // "unknown"' <<< "${RUN_STATUS}")" || fail "Failed to parse the run status string: [${RUN_STATUS}]"
+	[ "${STATUS,,}" == "completed" ] || continue
+
+	CONCLUSION="$(jq -r '.conclusion // "unknown"' <<< "${RUN_STATUS}")"
+	case "${CONCLUSION,,}" in
+		neutral | skipped | success ) break ;;
+	esac
+	fail "The workflow has completed with an unsuccessful status: [${CONCLUSION}]"
+done
+quit "The workflow has completed successfully!"

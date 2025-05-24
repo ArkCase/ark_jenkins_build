@@ -5,11 +5,33 @@ set -euo pipefail
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} workflow runid"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ repository ] workflow runid"
 	exit 1
 }
 
-[ ${#} -eq 2 ] || usage
+[ ${#} -ge 2 ] || usage
+[ ${#} -le 3 ] || usage
+
+ARGS="$(getopt -o "h?" -l "help" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}")" || usage
+
+eval set -- "${ARGS}"
+
+while true ; do
+	case "${1}" in
+		--help | -h | "-?" ) usage ;;
+
+		-- ) shift ; break ;;
+
+		* ) usage ;;
+	esac
+done
+
+REPO_PARAM=()
+if [ ${#} -eq 3 ] ; then
+	[ -n "${1}" ] || fail "The repository name may not be an empty string"
+	REPO_PARAM=(--repo "${1}")
+	shift
+fi
 
 WORKFLOW="${1}"
 [ -n "${WORKFLOW}" ] || fail "The workflow may not be an empty string"
@@ -20,7 +42,7 @@ GH_USER_FLAGS=()
 [ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
 
 # Wait for the run to complete
-STATUS="$(gh run list --workflow "${WORKFLOW}" --json databaseId,status,conclusion --jq ".[] | select(.databaseId == ${RUN_ID})")"
+STATUS="$(gh run list "${REPO_PARAM[@]}" --workflow "${WORKFLOW}" --json databaseId,status,conclusion --jq ".[] | select(.databaseId == ${RUN_ID})")"
 [ -n "${STATUS}" ] || fail "No run found for ${WORKFLOW} with ID = ${RUN_ID}"
 
 echo -n "${STATUS,,}"

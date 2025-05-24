@@ -14,12 +14,15 @@ say()
 usage()
 {
 	[ ${#} -eq 0 ] || echo -e "❌ ${@}\n"
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [--ref branch] workflow [param1=value1 param2=value2 ... paramN=valueN]" 1>&2
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ -R|--repo repository ] [ -r|--ref branch ] workflow [ param1=value1 param2=value2 ... paramN=valueN ]" 1>&2
 	exit 1
 }
 
-ARGS="$(getopt -o "r:h?" -l "help,ref:" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}")" || usage
+ARGS="$(getopt -o "r:R:h?" -l "help,ref:,repo:" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}")" || usage
 
+REPO=()
+REPO_PARAM=()
+REPO_SET="false"
 REF=()
 REF_SET="false"
 WORKFLOW=""
@@ -29,7 +32,17 @@ eval set -- "${ARGS}"
 
 while true ; do
 	case "${1}" in
-		--ref )
+		-R | --repo )
+			as_boolean "${REPO_SET}" && fail "You may specify ${1} only once"
+			[ -n "${2}" ] || fail "The target repository may not be the empty string (${1})"
+			REPO=("${2}")
+			REPO_PARAM=(--repo "${2}")
+			REPO_SET="true"
+			shift 2
+			continue
+			;;
+
+		-r | --ref )
 			as_boolean "${REF_SET}" && fail "You may specify ${1} only once"
 			[ -n "${2}" ] || fail "The target branch may not be the empty string (${1})"
 			REF=(--ref "${2}")
@@ -62,7 +75,7 @@ done
 GH_USER_FLAGS=()
 [ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
 
-PROJECT="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || fail "Unable to identify the GitHub project"
+PROJECT="$(gh repo view "${REPO[@]}" --json nameWithOwner --jq .nameWithOwner)" || fail "Unable to identify the GitHub project"
 
 say "👉 Launching the GH Workflow [${WORKFLOW}]"
 for p in "${PARAMS[@]}" ; do
@@ -70,7 +83,7 @@ for p in "${PARAMS[@]}" ; do
 	say "\t${p}"
 done
 START="$(date -Is -u)"
-gh workflow run "${WORKFLOW}" "${REF[@]}" "${PARAMS[@]}" || fail "Failed to launch the workflow run!"
+gh workflow run "${WORKFLOW}" "${REF[@]}" "${REPO_PARAM[@]}" "${PARAMS[@]}" || fail "Failed to launch the workflow run!"
 say "\t✅ Workflow launched!"
 
 # This is unelegant, but appears to be necessary
@@ -85,6 +98,7 @@ while true ; do
 	# concurrently.
 	RUN_ID="$(
 		gh run list \
+			"${REPO_PARAM[@]}" \
 			"${GH_USER_FLAGS[@]}" \
 			--event workflow_dispatch \
 			--created "${START}..$(date -Is -u)" \
@@ -100,7 +114,7 @@ done
 
 # Wait for the run to complete
 say "\t✅ Workflow started with run ID [${RUN_ID}]..."
-if URL="$(gh run view "${RUN_ID}" --json url --jq .url 2>&1)" ; then
+if URL="$(gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --json url --jq .url 2>&1)" ; then
 	say "\t✅ Workflow Run URL: ${URL}"
 	URL="${URL}"
 else
