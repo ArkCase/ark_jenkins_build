@@ -104,6 +104,6 @@ while true ; do
 
 	# Always show the full log
 	gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --log
-	err "The workflow has completed with an unsuccessful status (rc=${RC}): [${CONCLUSION}]"
+	fail "The workflow has completed with an unsuccessful status (rc=${RC}): [${CONCLUSION}]"
 done
 quit "The workflow has completed successfully!"
