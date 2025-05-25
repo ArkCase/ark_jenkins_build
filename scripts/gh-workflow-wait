@@ -53,11 +53,15 @@ set_or_default RETRY_DELAY "15s"
 #
 ATTEMPT=0
 RUN_STATUS=""
-STATUS="unknown"
+PRIOR_STATUS=""
+STATUS=""
 while [ "${STATUS,,}" != "completed" ] ; do
 	(( ++ATTEMPT ))
 	if [ ${ATTEMPT} -gt 1 ] ; then
-		[ ${ATTEMPT} -eq 2 ] && sleeping "The run is ${STATUS//_/ }, waiting for it to finish..."
+		if [ ${ATTEMPT} -eq 2 ] || [ "${STATUS}" != "${PRIOR_STATUS}" ]; then
+			[ -n "${PRIOR_STATUS}" ] && PRIOR_MSG=" (the prior status was ${PRIOR_STATUS//_/ })"
+			sleeping "The run is ${STATUS//_/ }${PRIOR_MSG:-}, waiting for it to finish..."
+		fi
 		sleep "${RETRY_DELAY}" || fail "Interrupted while waiting prior to attempt # ${ATTEMPT}"
 	fi
 
@@ -76,6 +80,7 @@ while [ "${STATUS,,}" != "completed" ] ; do
 	fi
 
 	# The JSON is OK! Check to see if we must continue polling...
+	PRIOR_STATUS="${STATUS}"
 	STATUS="$(jq -r '.status // "unknown"' <<< "${RUN_STATUS}")"
 done
 
