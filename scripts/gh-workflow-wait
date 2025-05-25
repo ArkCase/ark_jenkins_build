@@ -1,0 +1,103 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+usage()
+{
+	[ ${#} -eq 0 ] || echo -e "❌ ${@}\n"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ -R | --repo repository ] workflow runId"
+	exit 1
+}
+
+ARGS="$(getopt -o "R:h?" -l "help,repo:" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}")" || usage
+
+eval set -- "${ARGS}"
+
+REPO=()
+REPO_SET="false"
+
+while true ; do
+	case "${1}" in
+		-R | --repo )
+			as_boolean "${REPO_SET}" && fail "You may specify ${1} only once"
+			[ -n "${2}" ] || fail "The repository may not be the empty string (${1})"
+			REPO=(--repo "${2}")
+			REPO_SET="true"
+			shift 2
+			continue
+			;;
+
+		--help | -h | "-?" ) usage ;;
+
+		-- ) shift ; break ;;
+
+		* ) usage ;;
+	esac
+done
+
+[ ${#} -eq 2 ] || usage
+
+WORKFLOW="${1}"
+[ -n "${WORKFLOW}" ] || usage "The workflow may not be an empty string"
+RUN_ID="${2}"
+[ -n "${RUN_ID}" ] || usage "The runId may not be an empty string"
+
+GH_USER_FLAGS=()
+[ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
+
+set_or_default RETRY_DELAY "15s"
+
+#
+# Start the polling cycle
+#
+ATTEMPT=0
+RUN_STATUS=""
+STATUS="unknown"
+while [ "${STATUS,,}" != "completed" ] ; do
+	(( ++ATTEMPT ))
+	if [ ${ATTEMPT} -gt 1 ] ; then
+		[ ${ATTEMPT} -eq 2 ] && sleeping "The run is ${STATUS//_/ }, waiting for it to finish..."
+		sleep "${RETRY_DELAY}" || fail "Interrupted while waiting prior to attempt # ${ATTEMPT}"
+	fi
+
+	# What's the run's status?
+	RC=0
+	RUN_STATUS="$(gh-workflow-run-status "${REPO[@]}" "${WORKFLOW}" "${RUN_ID}")" || RC=${?}
+	if [ ${RC} -ne 0 ] ; then
+		err "Failed to fetch the run status (rc=${RC}): [${RUN_STATUS}]"
+		continue
+	fi
+
+	# Is this valid JSON?
+	if ! jq -r <<< "${RUN_STATUS}" &>/dev/null ; then
+		err "Failed to parse the run status JSON from the string [${RUN_STATUS}]"
+		continue
+	fi
+
+	# The JSON is OK! Check to see if we must continue polling...
+	STATUS="$(jq -r '.status // "unknown"' <<< "${RUN_STATUS}")"
+done
+
+#
+# The run status says the run has completed, so let's check to see
+# what the outcome was, and how we should react to it
+#
+OUTCOME="$(jq -r '.conclusion // "unknown"' <<< "${RUN_STATUS}")"
+RC=0
+case "${OUTCOME,,}" in
+	neutral | skipped | success ) ;;
+
+	* )	# We don't know the exact status, so we check it directly
+		RC=0
+		gh run view "${RUN_ID}" "${REPO[@]}" --exit-status &>/dev/null || RC="${?}"
+		if [ ${RC} -ne 0 ] ; then
+			# The exit status shows a failure, so show the full log
+			gh run view "${RUN_ID}" "${REPO[@]}" --log
+			fail "The run has completed with an unsuccessful status (rc=${RC}): [${OUTCOME}]"
+		fi
+		;;
+esac
+
+# If everything was happy, we end up here!
+quit "The run has completed successfully (outcome = ${OUTCOME})!"

@@ -5,19 +5,29 @@ set -euo pipefail
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ repository ] workflow runid"
+	[ ${#} -eq 0 ] || echo -e "❌ ${@}\n"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ -R | --repo repository ] workflow runId"
 	exit 1
 }
 
-[ ${#} -ge 2 ] || usage
-[ ${#} -le 3 ] || usage
-
-ARGS="$(getopt -o "h?" -l "help" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}")" || usage
+ARGS="$(getopt -o "R:h?" -l "help,repo:" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}")" || usage
 
 eval set -- "${ARGS}"
 
+REPO=()
+REPO_SET="false"
+
 while true ; do
 	case "${1}" in
+		-R | --repo )
+			as_boolean "${REPO_SET}" && fail "You may specify ${1} only once"
+			[ -n "${2}" ] || fail "The repository may not be the empty string (${1})"
+			REPO=(--repo "${2}")
+			REPO_SET="true"
+			shift 2
+			continue
+			;;
+
 		--help | -h | "-?" ) usage ;;
 
 		-- ) shift ; break ;;
@@ -26,30 +36,25 @@ while true ; do
 	esac
 done
 
-REPO_PARAM=()
-if [ ${#} -eq 3 ] ; then
-	[ -n "${1}" ] || fail "The repository name may not be an empty string"
-	REPO_PARAM=(--repo "${1}")
-	shift
-fi
+[ ${#} -eq 2 ] || usage
 
 WORKFLOW="${1}"
-[ -n "${WORKFLOW}" ] || fail "The workflow may not be an empty string"
+[ -n "${WORKFLOW}" ] || usage "The workflow may not be an empty string"
 RUN_ID="${2}"
-[ -n "${RUN_ID}" ] || fail "The runId may not be an empty string"
+[ -n "${RUN_ID}" ] || usage "The runId may not be an empty string"
 
 GH_USER_FLAGS=()
 [ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
 
 # Wait for the run to complete
 say "\t👀 Watching run # ${RUN_ID} for workflow ${WORKFLOW}..."
-gh run watch "${RUN_ID}" "${REPO_PARAM[@]}" || fail "Failed to watch run # ${RUN_ID} to completion"
+gh run watch "${RUN_ID}" "${REPO[@]}" || fail "Failed to watch run # ${RUN_ID} to completion"
 
 RC=0
-gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --exit-status &>/dev/null || RC="${?}"
+gh run view "${RUN_ID}" "${REPO[@]}" --exit-status &>/dev/null || RC="${?}"
 
 # Always show the full log
-gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --log
+gh run view "${RUN_ID}" "${REPO[@]}" --log
 
 [ ${RC} -eq 0 ] || fail "Run ${RUN_ID} failed! (rc = ${RC})"
 say "✅ Run ${RUN_ID} succeeded!"
