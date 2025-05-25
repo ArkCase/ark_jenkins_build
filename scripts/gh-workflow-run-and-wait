@@ -67,43 +67,67 @@ done
 GH_USER_FLAGS=()
 [ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
 
-LAUNCH_RESULT="$(gh-workflow-run "${REPO_PARAM[@]}" "${BRANCH[@]}" "${WORKFLOW}" "${PARAMS[@]}")" || exit ${?}
+LAUNCH_DETAILS="$(gh-workflow-run "${REPO_PARAM[@]}" "${BRANCH[@]}" "${WORKFLOW}" "${PARAMS[@]}")" || exit ${?}
 
-LAUNCH_RESULT="$(echo -n "${LAUNCH_RESULT}" | yaml2json)" || fail "Failed to convert the gh-workflow-run output to JSON"
+LAUNCH_DETAILS="$(echo -n "${LAUNCH_DETAILS}" | yaml2json)" || fail "Failed to convert the gh-workflow-run output to JSON"
 
-RUN_URL="$(jq -r '.runUrl // ""' <<< "${LAUNCH_RESULT}")"
+RUN_URL="$(jq -r '.runUrl // ""' <<< "${LAUNCH_DETAILS}")"
 [ -n "${RUN_URL}" ] && eyes "The GigHub run can be tracked here: ${RUN_URL}"
 
-RUN_ID="$(jq -r '.runId // ""' <<< "${LAUNCH_RESULT}")"
+RUN_ID="$(jq -r '.runId // ""' <<< "${LAUNCH_DETAILS}")"
 [ -n "${RUN_ID}" ] || fail "Failed to get the run ID for the launched job"
 
 set_or_default RETRY_DELAY "15s"
 
+#
+# Start the polling cycle
+#
 ATTEMPT=0
-while true ; do
+RUN_STATUS=""
+STATUS="unknown"
+while [ "${STATUS,,}" != "completed" ] ; do
 	(( ++ATTEMPT ))
 	if [ ${ATTEMPT} -gt 1 ] ; then
 		sleep "${RETRY_DELAY}" || fail "Interrupted while waiting to try attempt # ${ATTEMPT}"
 	fi
 
-	RUN_STATUS="$(gh-workflow-run-status "${REPO[@]}" "${WORKFLOW}" "${RUN_ID}")" || continue
-
-	jq -r <<< "${RUN_STATUS}" &>/dev/null || continue
-
-	STATUS="$(jq -r '.status // "unknown"' <<< "${RUN_STATUS}")" || fail "Failed to parse the run status string: [${RUN_STATUS}]"
-	[ "${STATUS,,}" == "completed" ] || continue
-
-	CONCLUSION="$(jq -r '.conclusion // "unknown"' <<< "${RUN_STATUS}")"
-	case "${CONCLUSION,,}" in
-		neutral | skipped | success ) break ;;
-	esac
-
+	# What's the run's status?
 	RC=0
-	gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --exit-status &>/dev/null || RC="${?}"
-	[ ${RC} -eq 0 ] && break
+	RUN_STATUS="$(gh-workflow-run-status "${REPO[@]}" "${WORKFLOW}" "${RUN_ID}")" || RC=${?}
+	if [ ${RC} -ne 0 ] ; then
+		err "Failed to fetch the run status (rc=${RC}): [${RUN_STATUS}]"
+		continue
+	fi
 
-	# Always show the full log
-	gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --log
-	fail "The workflow has completed with an unsuccessful status (rc=${RC}): [${CONCLUSION}]"
+	# Is this valid JSON?
+	if ! jq -r <<< "${RUN_STATUS}" &>/dev/null ; then
+		err "Failed to parse the run status JSON from the string [${RUN_STATUS}]"
+		continue
+	fi
+
+	# The JSON is OK! Check to see if we must continue polling...
+	STATUS="$(jq -r '.status // "unknown"' <<< "${RUN_STATUS}")"
 done
-quit "The workflow has completed successfully!"
+
+#
+# The run status says the run has completed, so let's check to see
+# what the outcome was, and how we should react to it
+#
+OUTCOME="$(jq -r '.conclusion // "unknown"' <<< "${RUN_STATUS}")"
+RC=0
+case "${OUTCOME,,}" in
+	neutral | skipped | success ) ;;
+
+	* )	# We don't know the exact status, so we check it directly
+		RC=0
+		gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --exit-status &>/dev/null || RC="${?}"
+		if [ ${RC} -ne 0 ] ; then
+			# The exit status shows a failure, so show the full log
+			gh run view "${RUN_ID}" "${REPO_PARAM[@]}" --log
+			fail "The workflow has completed with an unsuccessful status (rc=${RC}): [${OUTCOME}]"
+		fi
+		;;
+esac
+
+# If everything was happy, we end up here!
+quit "The workflow has completed successfully (outcome = ${OUTCOME})!"
