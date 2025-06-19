@@ -55,10 +55,13 @@ ATTEMPT=0
 RUN_STATUS=""
 PRIOR_STATUS=""
 STATUS=""
+RC=0
 while [ "${STATUS,,}" != "completed" ] ; do
 	(( ++ATTEMPT ))
 	if [ ${ATTEMPT} -gt 1 ] ; then
-		if [ ${ATTEMPT} -eq 2 ] || [ "${STATUS}" != "${PRIOR_STATUS}" ]; then
+		if [ ${RC} -ne 0 ] ; then
+			sleeping "The previous probe failed, will probe again shortly..."
+		elif [ ${ATTEMPT} -eq 2 ] || [ "${STATUS}" != "${PRIOR_STATUS}" ]; then
 			[ -n "${PRIOR_STATUS}" ] && PRIOR_MSG=" (the prior status was ${PRIOR_STATUS//_/ })"
 			sleeping "The run is ${STATUS//_/ }${PRIOR_MSG:-}, waiting for it to finish..."
 		fi
@@ -70,12 +73,15 @@ while [ "${STATUS,,}" != "completed" ] ; do
 	RUN_STATUS="$(gh-workflow-run-status "${REPO[@]}" "${WORKFLOW}" "${RUN_ID}")" || RC=${?}
 	if [ ${RC} -ne 0 ] ; then
 		err "Failed to fetch the run status (rc=${RC}): [${RUN_STATUS}]"
+		STATUS="gh-probe-error"
 		continue
 	fi
 
 	# Is this valid JSON?
-	if ! jq -r <<< "${RUN_STATUS}" &>/dev/null ; then
+	jq -r <<< "${RUN_STATUS}" &>/dev/null || RC=${?}
+	if [ ${RC} -ne 0 ] ; then
 		err "Failed to parse the run status JSON from the string [${RUN_STATUS}]"
+		STATUS="json-parse-error"
 		continue
 	fi
 
