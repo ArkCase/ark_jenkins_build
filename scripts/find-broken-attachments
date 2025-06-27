@@ -101,7 +101,7 @@ for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 
 	say "\t${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 	FAILED+=("${ATTACHMENT}")
-done
+done | column -t
 if [ ${#FAILED[@]} -eq 0 ] ; then
 	ok "No broken attachments were found!"
 	exit 0

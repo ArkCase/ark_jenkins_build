@@ -92,7 +92,7 @@ for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 	PV="$(jq -r ".spec.source.persistentVolumeName" <<< "${ATTACHMENT_INFO}")"
 	NODE="$(jq -r ".spec.nodeName" <<< "${ATTACHMENT_INFO}")"
 	TARGETS+=("${ATTACHMENT}")
-done
+done | column -t
 
 if [ ${#TARGETS[@]} -eq 0 ] ; then
 	ok "No attachments needed deletion!"

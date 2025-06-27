@@ -159,7 +159,7 @@ for PVC in "${PVCS[@]}" ; do
 	"${OK}" && continue
 
 	FAILED+=( "${PVC}" )
-done
+done | column -t
 
 [ ${#FAILED[@]} -eq 0 ] && exit 0
 
