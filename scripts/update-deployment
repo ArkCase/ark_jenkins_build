@@ -1,0 +1,101 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+set_or_default TIMEOUT "15m"
+set_or_default HELM_REPOSITORY "arkcase"
+set_or_default INSTANCE "arkcase"
+set_or_default POD "core"
+
+INSTANCE_SELECTOR="app.kubernetes.io/instance=${INSTANCE}"
+
+list_pods()
+{
+	local INSTANCE="${1}"
+	local NAME="${2}"
+	kubectl get pods -A --selector "${INSTANCE_SELECTOR},app.kubernetes.io/name=${NAME}" --no-headers | sort -u
+}
+
+get_helm_metadata()
+{
+	local NAMESPACE="${1}"
+	local INSTANCE="${2}"
+	helm --namespace "${NAMESPACE}" get metadata "${INSTANCE}" -o json | jq -r '.chart + " " + .version'
+}
+
+helm_redeploy()
+{
+	local NAMESPACE="${1}"
+	local INSTANCE="${2}"
+
+	local URL="${NAMESPACE}/${INSTANCE}"
+	if ! read CHART VER < <(get_helm_metadata "${NAMESPACE}" "${INSTANCE}") ; then
+		err "No Helm metadata found for ${URL}"
+		return 1
+	fi
+
+	URL+="#${VER}"
+	local VERSION=()
+	case "${VER,,}" in
+		0.8.0-* ) VERSION=(--version '~0.8.0-0') ;;
+		0.8.* ) VERSION=(--version '~0.8.0') ;;
+		0.9.0-* ) VERSION=(--version '~0.9.0-0') ;;
+		0.9.* ) VERSION=(--version '~0.9.0') ;;
+		* ) ;;
+	esac
+
+	running "Performing the Helm update for ${URL}..."
+	local CMD=()
+
+	CMD=(helm --namespace "${NAMESPACE}" upgrade --install "${INSTANCE}" "${HELM_REPOSITORY}/${CHART}" "${VERSION[@]}" --reset-then-reuse-values)
+	running "${CMD[@]}"
+	if ! "${CMD[@]}" ; then
+		err "Failed to upgrade for ${URL}"
+		return 1
+	fi
+
+	waiting "Waiting for the deployment to boot up fully..."
+	CMD=(kubectl --namespace "${NAMESPACE}" wait --for condition=Ready pod --selector "${INSTANCE_SELECTOR}" --timeout "${TIMEOUT}")
+	running "${CMD[@]}"
+	if ! "${CMD[@]}" ; then
+		err "Failed to wait for the deployment to boot up fully"
+		return 1
+	fi
+
+	ok "Deployment completed!"
+	return 0
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} ( namespace | --all )"
+	exit 1
+}
+
+[ ${#} -ne 1 ] || usage
+
+case "${1}" in
+	--all | -A )
+		NAMESPACES=()
+		while read NAMESPACE REST ; do
+			NAMESPACES+=("${NAMESPACE}")
+		done < <(list_pods "${INSTANCE}" "${POD}" | sort -u)
+		[ ${#NAMESPACES[@]} -gt 0 ] || quit "No namespaces found that could be redeployed"
+		;;
+
+	* )
+		NS="${1}"
+		is_valid_hostname_part "${NS}" || fail "The string [${NS}] is not a valid namespace name"
+		kubectl get namespace "${NS}" &>/dev/null || fail "The namespace [${NS}] does not exist"
+		NAMESPACES=("${NS}")
+		;;
+esac
+
+helm repo update "${HELM_REPOSITORY}" || return 1
+
+doing "Redeploying the instances in the namespaces [ ${NAMESPACES[@]} ]"
+for NAMESPACE in "${NAMESPACES[@]}" ; do
+	helm_redeploy "${NAMESPACE}" "${INSTANCE}"
+done
+quit "Done"
