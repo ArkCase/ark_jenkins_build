@@ -73,7 +73,7 @@ usage()
 	exit 1
 }
 
-[ ${#} -ne 1 ] || usage
+[ ${#} -eq 1 ] || usage
 
 case "${1}" in
 	--all | -A )
