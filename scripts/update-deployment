@@ -47,7 +47,10 @@ helm_redeploy()
 	running "Performing the Helm update for ${URL}..."
 	local CMD=()
 
-	CMD=(helm --namespace "${NAMESPACE}" upgrade --install "${INSTANCE}" "${HELM_REPOSITORY}/${CHART}" "${VERSION[@]}" --reset-then-reuse-values)
+	set_as_boolean HELM_FORCE "true"
+	as_boolean "${HELM_FORCE}" && HELM_FORCE="--force" || HELM_FORCE=""
+
+	CMD=(helm --namespace "${NAMESPACE}" upgrade ${HELM_FORCE} --install "${INSTANCE}" "${HELM_REPOSITORY}/${CHART}" "${VERSION[@]}" --reset-then-reuse-values)
 	running "${CMD[@]}"
 	if ! "${CMD[@]}" ; then
 		err "Failed to upgrade for ${URL}"
