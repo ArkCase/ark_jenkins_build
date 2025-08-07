@@ -462,12 +462,15 @@ else
 	HISTORY_ARG=()
 	[ -n "${HISTORY_MAX}" ] && HISTORY_ARG=(--history-max "${HISTORY_MAX}")
 
+	set_as_boolean HELM_FORCE "true"
+	as_boolean "${HELM_FORCE}" && HELM_FORCE="--force" || HELM_FORCE=""
+
 	#
 	# First, try an in-place upgrade. If that fails, then undeploy and redeploy.
 	#
 	RC=0
 	execute \
-		helm upgrade --install \
+		helm upgrade ${HELM_FORCE} --install \
 			"${RELEASE}" "${CHART}" \
 			--namespace "${NAMESPACE}" \
 			"${HISTORY_ARG[@]}" \
