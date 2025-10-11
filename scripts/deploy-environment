@@ -389,8 +389,16 @@ VALUES=()
 # The directory where the common files (i.e. files shared across
 # directories) are stored.
 #
-[ -v COMMON_DIRS ] || COMMON_DIRS="common"
-readarray -t COMMON_DIRS < <(sanitize_common_dirs "${COMMON_DIRS}")
+COMMON_DIRS=( "common" )
+
+#
+# Allow for a directory with common, cluster-specific settings
+#
+if [ -n "${CLUSTER_NAME:-}" ] ; then
+	CLUSTER_COMMON="common.${CLUSTER_NAME}"
+	[ -d "${CLUSTER_COMMON}" ] && COMMON_DIRS+=( "${CLUSTER_COMMON}" )
+fi
+
 for D in "${COMMON_DIRS[@]}" ; do
 	COMMON_DIR="${DEPLOYMENT_DIR}/${D}"
 	if [ -d "${COMMON_DIR}" ] ; then
