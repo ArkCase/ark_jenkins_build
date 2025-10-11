@@ -106,10 +106,10 @@ if as_boolean "${WAIT_FOR_ATTACHMENTS}" ; then
 	true
 
 	# This should help clean up any stragglers
-	if is_valid_hostname_part "${SOURCE_CLUSTER:-}" ; then
+	if is_valid_hostname_part "${CLUSTER_NAME:-}" ; then
 		DETACHMENT_WAIT_TIMEOUT="${UNDEPLOY_TIMEOUT}" \
 		DISABLE_DETACHMENT_WAIT="${DISABLE_UNDEPLOY}" \
-		"${BASEDIR}/wait-for-volumes-to-detach" "${SOURCE_CLUSTER}" "${NAMESPACE}" "${RELEASE}" || \
+		"${BASEDIR}/wait-for-volumes-to-detach" "${CLUSTER_NAME}" "${NAMESPACE}" "${RELEASE}" || \
 		true
 	fi
 fi
