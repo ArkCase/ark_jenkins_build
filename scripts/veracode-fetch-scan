@@ -59,13 +59,14 @@ DEF_VERACODE_TIMEOUT="120"
 [ -v VERACODE_TIMEOUT ] || VERACODE_TIMEOUT=""
 [[ "${VERACODE_TIMEOUT}" =~ ^(0|-?[1-9][0-9]*)$ ]] || VERACODE_TIMEOUT="${DEF_VERACODE_TIMEOUT}"
 
-[ ${VERACODE_TIMEOUT} -gt 0 ] || VERACODE_TIMEOUT=0
+[ ${VERACODE_TIMEOUT} -ge 0 ] || VERACODE_TIMEOUT="-1"
 
 # Compute the application ID based on the name
 APP_ID="$("${BASEDIR}/veracode-get-app-id" "${APP_NAME}")" || fail "Failed to get the application ID for [${APP_NAME}]"
 
 PROBE_START="$(date +%s)"
 TIMEOUT_SECONDS=$(( VERACODE_TIMEOUT * 60 ))
+REMAINING_SECONDS="${VERACODE_PROBE_SECONDS}"
 while true ; do
 
 	# First things first!! Check the timeout!
@@ -100,7 +101,7 @@ while true ; do
 
 		# These are "waitable" statuses
 		"VENDOR CONFIRMATION" | "VENDOR REVIEWING" | "PRE-SCAN SUBMITTED" | "PRE-SCAN SUCCESS" | "SCAN IN PROCESS" )
-			[ ${TIMEOUT_SECONDS} -gt 0 ] || fail "The scan is still running (${STATUS}), and no wait timeout was specified - cannot continue"
+			[ ${TIMEOUT_SECONDS} -eq 0 ] && fail "The scan is still running (${STATUS}), and no wait timeout was specified - cannot continue"
 
 			# Use the lesser time between the number of seconds before we meet the timeout,
 			# and the configured number of seconds between each poll
