@@ -54,4 +54,11 @@ if [ -d "${__NODE_MODULES}" ] ; then
 fi
 unset __NODE_MODULES
 
+# Pre-release? Maybe check for STOW_PRERELEASE to be a non-blank
+# and use that as the --preid value and switch to prerelease?
+set_or_default STOW_PRERELEASE
+# TODO: Sanity-check this command!
+[ -n "${STOW_PRERELEASE}" ] && execute lerna publish prerelease --preid "${STOW_PRERELEASE}" --yes --scope="${SCOPE}"
+
+# Not a pre-release, so just deploy
 execute lerna exec -- "npm publish --scope=${SCOPE}"
