@@ -99,14 +99,14 @@ RC=0
 case "${OUTCOME,,}" in
 	neutral | skipped | success ) ;;
 
-	* )	# We don't know the exact status, so we check it directly
-		RC=0
+	cancelled | startup_failure | timed_out ) O="${OUTCOME,,}" ; fail "The run failed with status [${OUTCOME}]" ;;
+
+	# We don't know the exact status, so we check it directly
+	* )	RC=0
 		gh run view "${RUN_ID}" "${REPO[@]}" --exit-status &>/dev/null || RC="${?}"
-		if [ ${RC} -ne 0 ] ; then
-			# The exit status shows a failure, so show the full log
-			gh run view "${RUN_ID}" "${REPO[@]}" --log
-			fail "The run has completed with an unsuccessful status (rc=${RC}): [${OUTCOME}]"
-		fi
+		# The exit status shows a failure, so show the full log
+		[ ${RC} -eq 0 ] || gh run view "${RUN_ID}" "${REPO[@]}" --log
+		fail "The run has completed with the exit code [${RC}] and status [${OUTCOME}]"
 		;;
 esac
 
