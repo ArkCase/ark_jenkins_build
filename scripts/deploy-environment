@@ -155,7 +155,7 @@ get_global_sums()
 		# The SUM must be valid JSON output
 		local ERR=""
 		if ! ERR="$(jq -r <<< "${SUM}" 2>&1)" ; then
-			ERRORS+=( "$(timestamp) ${999} The checksum string is not valid JSON (${ERR}): ${SUM}" )
+			ERRORS+=( "$(timestamp) 999 The checksum string is not valid JSON (${ERR}): ${SUM}" )
 			continue
 		fi
 
