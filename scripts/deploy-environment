@@ -139,15 +139,14 @@ get_global_sums()
 		# available to us. We know kubectl *is*, so use that!
 		local RC=0
 		local SUM=""
-		SUM="$( timeout 30 kubectl --namespace "${NAMESPACE}" exec -it "${POD}" -- /usr/local/bin/global-sums 2>&1)" || RC=${?}
 
+		SUM="$(timeout 30 kubectl --namespace "${NAMESPACE}" exec -it "${POD}" -- /usr/local/bin/global-sums 2>&1)" || RC=${?}
 		if [ ${RC} -ne 0 ] ; then
 			ERRORS+=( "$(timestamp) ${RC} ${SUM}" )
 			continue
 		fi
 
 		# The output must not be empty
-		SUM="${STDOUT}"
 		if [ -z "${SUM}" ] ; then
 			ERRORS+=( "$(timestamp) 999 The checksum string is empty" )
 			continue
