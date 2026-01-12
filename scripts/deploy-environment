@@ -140,7 +140,7 @@ get_global_sums()
 		local RC=0
 		local SUM=""
 
-		SUM="$(timeout 30 kubectl --namespace "${NAMESPACE}" exec -it "${POD}" -- /usr/local/bin/global-sums 2>&1)" || RC=${?}
+		SUM="$(timeout 30 kubectl --namespace "${NAMESPACE}" exec "${POD}" -- /usr/local/bin/global-sums 2>&1)" || RC=${?}
 		if [ ${RC} -ne 0 ] ; then
 			ERRORS+=( "$(timestamp) ${RC} ${SUM}" )
 			continue
