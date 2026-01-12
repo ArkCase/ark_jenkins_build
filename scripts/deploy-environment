@@ -130,17 +130,35 @@ get_global_sums()
 	#
 	# We try to run the sum on all existing pods
 	#
+	local ERRORS=()
 	while read POD ; do
 		# First, wait for the pod to become ready ... up to 5 mins
 		kubectl --namespace "${NAMESPACE}" wait --for condition=Ready "${POD}" --timeout=5m &>/dev/null || continue
 
 		# Run the sums. We do this in case networking is not
 		# available to us. We know kubectl *is*, so use that!
-		SUM="$(timeout 30 kubectl --namespace "${NAMESPACE}" exec -it "${POD}" -- /usr/local/bin/global-sums 2>/dev/null)" || continue
+		local RC=0
+		local SUM=""
+		SUM="$( timeout 30 kubectl --namespace "${NAMESPACE}" exec -it "${POD}" -- /usr/local/bin/global-sums 2>&1)" || RC=${?}
+
+		if [ ${RC} -ne 0 ] ; then
+			ERRORS+=( "$(timestamp) ${RC} ${SUM}" )
+			continue
+		fi
+
+		# The output must not be empty
+		SUM="${STDOUT}"
+		if [ -z "${SUM}" ] ; then
+			ERRORS+=( "$(timestamp) 999 The checksum string is empty" )
+			continue
+		fi
 
 		# The SUM must be valid JSON output
-		[ -n "${SUM}" ] || continue
-		jq -r <<< "${SUM}" &>/dev/null || continue
+		local ERR=""
+		if ! ERR="$(jq -r <<< "${SUM}" 2>&1)" ; then
+			ERRORS+=( "$(timestamp) ${999} The checksum string is not valid JSON (${ERR}): ${SUM}" )
+			continue
+		fi
 
 		# We're good to go, so return it!
 		echo -en "${SUM}"
@@ -148,6 +166,14 @@ get_global_sums()
 	done < <(kubectl --namespace "${NAMESPACE}" get pod --selector "${SELECTOR}" -o name | sort)
 
 	# If we weren't able to get the sum, we must notify as much
+	if [ ${#ERRORS[@]} -gt 0 ] ; then
+		err "The following ${#ERRORS[@]} errors were detected while reading the checksum data:"
+		for ERROR in "${ERRORS[@]}" ; do
+			echo -e "${ERROR}" | sed -e 's;^;\t;g'
+		done
+	else
+		err "No pods were found to read the checksum data from!"
+	fi 1>&2
 	return 1
 }
 
