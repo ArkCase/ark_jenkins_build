@@ -21,6 +21,28 @@ SCOPE="${1}"
 
 as_boolean "${DISABLE_DEPLOY}" && quit "Deployment is disabled - skipping scope [${SCOPE}] to ${NPM_PUBLISH_URL}!"
 
+VARS=(
+	URL:
+	CRED:
+	USER:USERNAME
+	PASS:PASSWORD
+)
+
+#
+# This is to grandfather in the old configurations
+#
+for VAR in "${VARS[@]}" ; do
+	[[ "${VAR}" =~ ^([A-Za-z0-9_]+)(:([A-Za-z0-9_]+)?)?$ ]] || continue
+	S="${BASH_REMATCH[1]}"
+	N="${BASH_REMATCH[3]:-${S}}"
+	N="NPM_PUBLISH_${N}"
+	S="STOW_${S}"
+
+	echo "MATCH ${VAR} (${S} / ${N})"
+	[ -v "${S}" ] && echo declare -gx "${N}=${!S@Q}"
+done
+exit 0
+
 stow-nodejs-configure "${SCOPE}" || exit ${?}
 
 set_or_default LERNA_FILE "lerna.json"
