@@ -19,30 +19,15 @@ usage()
 SCOPE="${1}"
 [[ "${SCOPE}" =~ ^@[^[:space:]]+$ ]] || fail "Invalid scope format: [${SCOPE}] - must match @scope-name"
 
-[ -z "${STOW_URL}" ] && fail "The STOW_URL variable is empty"
-[[ "${STOW_URL}" =~ ^https?://[-a-zA-Z0-9]+(\.[-a-zA-Z0-9]+)*(/.*)?$ ]] || fail "The STOW_URL value [${STOW_URL}] is not a valid URL"
+as_boolean "${DISABLE_DEPLOY}" && quit "Deployment is disabled - skipping scope [${SCOPE}] to ${NPM_PUBLISH_URL}!"
 
-if as_boolean "${DISABLE_DEPLOY}" ; then
-	echo -e "Deployment is disabled - skipping scope [${SCOPE}] to ${STOW_URL}!"
-	exit 0
-fi
+stow-nodejs-configure "${SCOPE}" || exit ${?}
 
 set_or_default LERNA_FILE "lerna.json"
 if is_file_readable "${LERNA_FILE}" ; then
 	say "No lerna configuration found at [${LERNA_FILE}], cannot deploy"
 	exit 0
 fi
-
-STOW_AUTH="$(echo -n "${STOW_USER}:${STOW_PASS}" | base64)"
-
-# Remove the scheme, if present...
-STOW_PREFIX="${STOW_URL}"
-[[ "${STOW_PREFIX}" =~ ^https?:(//.*) ]] && STOW_PREFIX="${BASH_REMATCH[1]}"
-# Add a final slash, if necessary
-[[ "${STOW_PREFIX}" =~ /$ ]] || STOW_PREFIX+="/"
-
-npm config set "${SCOPE}:registry=${STOW_URL}"
-npm config set "${STOW_PREFIX}:_auth=${STOW_AUTH}"
 
 #
 # Temporary fix to get lerna working again
@@ -54,11 +39,11 @@ if [ -d "${__NODE_MODULES}" ] ; then
 fi
 unset __NODE_MODULES
 
-# Pre-release? Maybe check for STOW_PRERELEASE to be a non-blank
+# Pre-release? Maybe check for NPM_PUBLISH_PRERELEASE to be a non-blank
 # and use that as the --preid value and switch to prerelease?
-set_or_default STOW_PRERELEASE
+set_or_default NPM_PUBLISH_PRERELEASE
 # TODO: Sanity-check this command!
-[ -n "${STOW_PRERELEASE}" ] && execute lerna publish prerelease --preid "${STOW_PRERELEASE}" --yes --scope="${SCOPE}"
+[ -n "${NPM_PUBLISH_PRERELEASE}" ] && execute lerna publish prerelease --preid "${NPM_PUBLISH_PRERELEASE}" --yes --scope="${SCOPE}"
 
 # Not a pre-release, so just deploy
 execute lerna exec -- "npm publish --scope=${SCOPE}"
