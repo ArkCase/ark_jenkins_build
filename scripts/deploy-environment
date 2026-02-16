@@ -318,7 +318,7 @@ smart_rollover()
 	# And ... roll!!
 	doing "These pods need to be rolled due to deployment artifact changes: [ ${ROLL[@]} ]"
 	local RC=0
-	execute kubectl --namespace "${NAMESPACE}" delete pod "${ROLL[@]}" || RC=${?}
+	execute timeout --signal=TERM --kill-after=7m 6m kubectl --namespace "${NAMESPACE}" --ignore-not-found --timeout=5m delete pod "${ROLL[@]}" || RC=${?}
 	if [ ${RC} -ne 0 ] ; then
 		err "Failed to roll the unchanged pods (rc=${RC})"
 		return 1
