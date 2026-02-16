@@ -226,7 +226,7 @@ list_changed_categories()
 	return 0
 }
 
-list_changed_pods()
+list_unchanged_pods()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
@@ -301,35 +301,44 @@ smart_rollover()
 	eyes "The following artifact categories have changed: [ ${CATEGORIES[@]} ]"
 
 	eyes "Searching for pods that consume the changed artifact categories..."
-	local NEW_PODS="$(list_consumer_uids "${NAMESPACE}" "${RELEASE}")"
 
 	eyes "Old consumer pod UIDs:\n${OLD_PODS}"
-	eyes "New consumer pod UIDs:\n${NEW_PODS}"
 
+	local ATTEMPT=1
+	local MAX_ATTEMPTS=5
 	local ROLL=()
-	readarray -t ROLL < <(list_changed_pods "${NAMESPACE}" "${RELEASE}" "${OLD_PODS}" "${NEW_PODS}" "${CATEGORIES[@]}")
+	local NEW_PODS=""
+	while true ; do
+		NEW_PODS="$(list_consumer_uids "${NAMESPACE}" "${RELEASE}")"
 
-	# If they're already rolled, we simply return
-	if [ ${#ROLL[@]} -eq 0 ] ; then
-		ok "All pods that needed to be rolled have already been rolled!"
-		return 0
-	fi
+		# Only show this on the first iteration
+		[ ${ATTEMPT} -eq 1 ] && eyes "New consumer pod UIDs:\n${NEW_PODS}"
 
-	# And ... roll!!
-	doing "These pods need to be rolled due to deployment artifact changes: [ ${ROLL[@]} ]"
-	local RC=0
-	execute timeout --signal=TERM --kill-after=7m 6m kubectl --namespace "${NAMESPACE}" --ignore-not-found --timeout=5m delete pod "${ROLL[@]}" || RC=${?}
-	if [ ${RC} -ne 0 ] ; then
-		err "Failed to roll the unchanged pods (rc=${RC})"
-		return 1
-	fi
+		# Get the list of artifact-consuming pods that
+		# weren't rolled as part of the deployment
+		readarray -t ROLL < <(list_unchanged_pods "${NAMESPACE}" "${RELEASE}" "${OLD_PODS}" "${NEW_PODS}" "${CATEGORIES[@]}")
 
-	# Here we used to wait for them to become ready. That happens elsewhere now so
-	# we don't care and we don't wait anymore.
+		# If the list is empty it means they were all
+		# rolled, so we can happily exit the loop!
+		[ ${#ROLL[@]} -eq 0 ] && ok "All the pods that needed to be rolled have been rolled!" && return 0
 
-	# All's well that ends well!
-	ok "Rolled all pods dependent on the modified artifacts: [ ${ROLL[@]} ]"
-	return 0
+		# The list wasn't empty which means we still have pods that need rolling...
+
+		# If we've already exhausted our attempts, we fail
+		if [ ${ATTEMPT} -ge ${MAX_ATTEMPTS} ] ; then
+			err "The manual roll attempts (${MAX_ATTEMPTS}) have been exhausted and these pods are still not rolled: [ ${ROLL[@]} ]"
+			return 1
+		fi
+
+		# And ... roll!!
+		doing "These pods still need to be rolled manually due to deployment artifact changes (attempt ${ATTEMPT}/${MAX_ATTEMPTS}): [ ${ROLL[@]} ]"
+		# Run the command within an encompassing timeout that will defend against infinite loops
+		execute timeout --signal=TERM --kill-after=5m 4m kubectl --namespace "${NAMESPACE}" --ignore-not-found --timeout=3m delete pod "${ROLL[@]}" || err "kubectl command failed (rc=${?})"
+		# Regardless of whether this command failed, we want to check the actual result
+
+		(( ++ATTEMPT ))
+		OLD_PODS="${NEW_PODS}"
+	done
 }
 
 sanitize_label()
