@@ -123,7 +123,7 @@ else
 fi
 
 # Allow for FD3 to be open already
-if [ ! -e /dev/fd/3 ] ; then
+if [ ! -e /proc/self/fd/3 ] ; then
 	set_or_default YAML_OUTPUT
 	if [ -n "${YAML_OUTPUT}" ] ; then
 		# Write to the file
