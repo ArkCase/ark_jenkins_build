@@ -83,7 +83,7 @@ for p in "${PARAMS[@]}" ; do
 	say "\t${p}"
 done
 START="$(date -Is -u)"
-gh workflow run "${WORKFLOW}" "${REF[@]}" "${REPO[@]}" "${PARAMS[@]}" || fail "Failed to launch the workflow run!"
+OUT="$(gh workflow run "${WORKFLOW}" "${REF[@]}" "${REPO[@]}" "${PARAMS[@]}" 2>&1)" || fail "Failed to launch the workflow run (rc=${?}): ${OUT}"
 say "\t✅ Workflow launched!"
 
 # This is unelegant, but appears to be necessary
@@ -122,7 +122,21 @@ else
 	URL=""
 fi
 
-cat <<-EOF
+# Allow for FD3 to be open already
+if [ ! -e /dev/fd/3 ] ; then
+	set_or_default YAML_OUTPUT
+	if [ -n "${YAML_OUTPUT}" ] ; then
+		# Write to the file
+		exec 3>"${YAML_OUTPUT}"
+	else
+		# Redirect to STDOUT
+		exec 3>&1
+	fi
+fi
+
+cat <<-EOF 1>&3
+---
+# Workflow run launch results
 project: ${PROJECT@Q}
 workflow: ${WORKFLOW@Q}
 parameters:$(
