@@ -6,9 +6,6 @@ SCRIPT="$(basename "${SCRIPT}")"
 set -euo pipefail
 . /.functions
 
-set_or_default NPM "${NODE_HOME}/bin/npm"
-require_exe "${NPM}"
-
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0} [npm-config-flags]"
@@ -17,6 +14,9 @@ usage()
 }
 
 [ ${#} -lt 1 ] && usage
+
+set_or_default NPM "${NODE_HOME}/bin/npm"
+require_exe "${NPM}"
 
 LOCATION_GIVEN="false"
 SET_GIVEN="false"
@@ -36,7 +36,7 @@ if ! ${LOCATION_GIVEN} && ${SET_GIVEN} ; then
 	CANDIDATES=()
 	CANDIDATES+=("project:./.npmrc")
 	CANDIDATES+=("user:${HOME}/.npmrc")
-	CANDIDATES+=("global:${NODE_CACHE}/npmrc")
+	[ -v NODE_CACHE ] && CANDIDATES+=("global:${NODE_CACHE}/npmrc")
 
 	#
 	# Iterate over the candidates, and use the first one whose file

@@ -1,0 +1,42 @@
+#!/bin/bash
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
+SCRIPT="$(basename "${SCRIPT}")"
+
+set -euo pipefail
+. /.functions
+
+set_as_boolean DISABLE_DEPLOY
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} scope"
+	exit 1
+}
+
+[ ${#} -ne 1 ] && usage
+
+SCOPE="${1}"
+[[ "${SCOPE}" =~ ^@[^[:space:]]+$ ]] || fail "Invalid scope format: [${SCOPE}] - must match @scope-name"
+
+set_or_default NPM_PUBLISH_URL
+[ -z "${NPM_PUBLISH_URL}" ] && quit "The NPM_PUBLISH_URL variable is empty, cannot configure NodeJS deployment"
+[[ "${NPM_PUBLISH_URL}" =~ ^https?://[-a-zA-Z0-9]+(\.[-a-zA-Z0-9]+)*(/.*)?$ ]] || fail "The NPM_PUBLISH_URL value [${NPM_PUBLISH_URL}] is not a valid URL"
+
+set_or_default NPM_PUBLISH_TOKEN ""
+set_or_default NPM_PUBLISH_USERNAME
+set_or_default NPM_PUBLISH_PASSWORD
+if [ -z "${NPM_PUBLISH_TOKEN}" ] && [ -n "${NPM_PUBLISH_USERNAME}" ] ; then
+	[ -z "${NPM_PUBLISH_PASS}" ] || fail "If authentication is required, a password must be used"
+	NPM_PUBLISH_TOKEN="$(echo -n "${NPM_PUBLISH_USERNAME}:${NPM_PUBLISH_PASSWORD}" | base64)"
+fi
+
+# Remove the scheme, if present...
+NPM_PUBLISH_PREFIX="${NPM_PUBLISH_URL}"
+[[ "${NPM_PUBLISH_PREFIX}" =~ ^https?:(//.*) ]] && NPM_PUBLISH_PREFIX="${BASH_REMATCH[1]}"
+# Add a final slash, if necessary
+[[ "${NPM_PUBLISH_PREFIX}" =~ /$ ]] || NPM_PUBLISH_PREFIX+="/"
+
+npm-config set "${SCOPE}:registry=${NPM_PUBLISH_URL}"
+npm-config set "${NPM_PUBLISH_PREFIX}:_auth=${NPM_PUBLISH_TOKEN}"
+quit "Configuration set!"

@@ -1,0 +1,66 @@
+#!/bin/bash
+SCRIPT="$(readlink -f "${BASH_SOURCE:-${0}}")"
+BASEDIR="$(dirname "${SCRIPT}")"
+SCRIPT="$(basename "${SCRIPT}")"
+
+set -euo pipefail
+. /.functions
+
+set_as_boolean DISABLE_DEPLOY
+
+set_or_default DIST_DIR "dist"
+set_or_default PACK_DIR "${DIST_DIR}/packed"
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0} scope"
+	exit 1
+}
+
+[ ${#} -ne 1 ] && usage
+
+SCOPE="${1}"
+[[ "${SCOPE}" =~ ^@[^[:space:]]+$ ]] || fail "Invalid scope format: [${SCOPE}] - must match @scope-name"
+
+as_boolean "${DISABLE_DEPLOY}" && quit "Deployment is disabled - skipping scope [${SCOPE}] to ${STOW_URL}!"
+
+stow-nodejs-configure "${SCOPE}" || exit ${?}
+
+is_dir_readable "${PACK_DIR}" || quit "No packed directory [${PACK_DIR}] was found"
+
+SRC="$(readlink -f "${PACK_DIR}" 2>&1)" || fail "Failed to resolve the true path for [${PACK_DIR}] (rc=${?}): ${SRC}"
+
+set_as_boolean CONTINUE_ON_ERROR
+as_boolean "${CONTINUE_ON_ERROR}" && ON_ERR="err" || ON_ERR="fail"
+
+set_or_default STOW_PRERELEASE
+# TODO: How to handle pre-release here?
+
+OK=()
+FAIL=()
+
+report()
+{
+	[ ${#OK[@]} -gt 0 ] && ok "Published ${#OK[@]} files successfully"
+	[ ${#FAIL[@]} -gt 0 ] && ok "The following ${#FAIL[@]} files encountered publishing errors: [ ${#FAIL[@]} ]"
+}
+
+trap report EXIT
+
+while read PKG ; do
+	P="${PKG##*/}"
+	doing "Publishing [${P}] ..."
+
+	RC=0
+	OUT="$(npm publish "${PKG}" 2>&1)" || RC=${?}
+	if [ ${RC} -eq 0 ] ; then
+		ok "\t...done!"
+		OK+=( "${P}" )
+		continue
+	fi
+
+	"${ON_ERR}" "Failed to deploy [${P}] (rc=${?}): ${OUT}"
+	FAIL=( "${P}" )
+done < <(find "${SRC}" -type f -name '*.tgz' | sort)
+
+[ ${#FAIL[@]} -eq 0 ] && exit 0 || exit 1
