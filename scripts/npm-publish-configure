@@ -27,7 +27,7 @@ set_or_default NPM_PUBLISH_TOKEN
 set_or_default NPM_PUBLISH_USERNAME
 set_or_default NPM_PUBLISH_PASSWORD
 if [ -z "${NPM_PUBLISH_TOKEN}" ] && [ -n "${NPM_PUBLISH_USERNAME}" ] ; then
-	[ -z "${NPM_PUBLISH_PASSWORD}" ] || fail "If authentication is required, a password must be used"
+	[ -n "${NPM_PUBLISH_PASSWORD}" ] || fail "If authentication is required, a password must be used"
 	NPM_PUBLISH_TOKEN="$(echo -n "${NPM_PUBLISH_USERNAME}:${NPM_PUBLISH_PASSWORD}" | base64)"
 fi
 
