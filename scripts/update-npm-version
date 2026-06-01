@@ -52,11 +52,14 @@ DEP_TYPES=(
 	# devDependencies
 )
 
+TOTAL_FOUND=0
+TOTAL_CHANGED=0
 for D in "${@}" ; do
 	DIR="$(readlink -f "${D}" 2>&1)" || fail "Failed to resolve the directory [${D}] (rc=${?}): ${DIR}"
 	is_dir_writable "${DIR}" || fail "The directory [${DIR}] is not writable"
 
 	running "Setting the package version to [${VER}] for group [${GROUP}] in [${DIR}] ..."
+	(( ++TOTAL_FOUND ))
 	while read FILE ; do
 		JSON="$(<"${FILE}")"
 
@@ -90,9 +93,14 @@ for D in "${@}" ; do
 			continue
 		fi
 
+		(( ++TOTAL_CHANGED ))
+
 		warn "\t\tWriting the updated JSON to [${FILE}]..."
 		jq -r --indent 4 <<< "${JSON}" > "${FILE}" || fail "\t\tFailed to write the updated JSON to [${FILE}] (rc=${?})"
 		ok "\t\tJSON updated!"
 	done < <(list_package_json "${DIR}")
 	ok "Directory [${DIR}] processed!"
 done
+
+eyes "Found ${TOTAL_FOUND} candidate file(s)"
+ok "Modified ${TOTAL_CHANGED} file(s)"
