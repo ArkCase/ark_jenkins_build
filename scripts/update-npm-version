@@ -1,0 +1,98 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+require_exe jq
+
+list_package_json()
+{
+	local DIR="${1:-.}"
+	find "${DIR}" -type f -not -ipath "${DIR}/node_modules/*" -not -ipath "${DIR}/.git/*" -iname "package.json" | sort
+}
+
+list_deps()
+{
+	local TYPE="${1}"
+	jq -r --arg T "${TYPE}" '.[$T] // {} | keys[]' | sort
+}
+
+is_target()
+{
+	local GRP="${1}"
+	local DEP="${2}"
+	[[ "${DEP}" =~ ^${GRP}/ ]] || return ${?}
+	return 0
+}
+
+usage()
+{
+	[ ${#} -eq 0 ] || err "${@}"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} group version [ dir-1 dir-2 dir-3 ... dir-N ]"
+	exit 0
+}
+
+[ ${#} -ge 2 ] || usage
+
+GROUP="${1}"
+GROUP_RE="(@[-a-z0-9*~|_.]+)/?"
+[[ "${GROUP}" =~ ^${GROUP_RE}$ ]] || fail "Invalid group [${GROUP}] - must match /${GROUP_RE}/"
+GROUP="${BASH_REMATCH[1]}"
+
+VER="${2}"
+VER_RE="((0|[1-9][0-9]*)([.](0|[1-9][0-9]*)){2})(-([a-zA-Z0-9-]+([.][a-zA-Z0-9-]+)*))?([+]([a-zA-Z0-9-]+))?"
+[[ "${VER}" =~ ^${VER_RE}$ ]] || fail "Invalid version [${VER}] - must be a valid SemVer version number!"
+
+shift 2
+[ ${#} -gt 0 ] || set -- .
+
+DEP_TYPES=(
+	dependencies
+	peerDependencies
+	# devDependencies
+)
+
+for D in "${@}" ; do
+	DIR="$(readlink -f "${D}" 2>&1)" || fail "Failed to resolve the directory [${D}] (rc=${?}): ${DIR}"
+	is_dir_writable "${DIR}" || fail "The directory [${DIR}] is not writable"
+
+	running "Setting the package version to [${VER}] for group [${GROUP}] in [${DIR}] ..."
+	while read FILE ; do
+		JSON="$(<"${FILE}")"
+
+		doing "\tEditing the file [${FILE}]..."
+		CHANGED="false"
+
+		NAME="$(jq -r ".name" <<< "${JSON}")"
+		if is_target "${GROUP}" "${NAME}" ; then
+			# Set the version to the new value
+			say "\t\tSetting the version to [${VER}] for [${NAME}] (${FILE})"
+			NEW_JSON="$(jq -r --arg V "${VER}"  '.version = $V' <<< "${JSON}" 2>&1)" || fail "\t\tFailed to set the new version to [${VER}] for [${NAME}](${FILE}) (rc=${?}): ${NEW_JSON}"
+			ok "\t\tVersion set!"
+			JSON="${NEW_JSON}"
+			CHANGED="true"
+		fi
+
+		for TYPE in "${DEP_TYPES[@]}" ; do
+			doing "\t\tEditing ${TYPE}..."
+			while read DEP ; do
+				is_target "${GROUP}" "${DEP}" || continue
+				eyes "\t\t\tSetting the version to [${VER}] for [${DEP}]"
+				NEW_JSON="$(jq -r --arg T "${TYPE}" --arg D "${DEP}" --arg V "${VER}" '.[$T].[$D] = $V' <<< "${JSON}" 2>&1)" || fail "\t\t\tFailed to set the new version for ${TYPE} [${DEP}] to [${VER}] for [${NAME}](${FILE}) (rc=${?}): ${NEW_JSON}"
+				ok "\t\t\tVersion set!"
+				JSON="${NEW_JSON}"
+				CHANGED="true"
+			done < <(list_deps "${TYPE}" <<< "${JSON}")
+		done
+
+		if ! as_boolean "${CHANGED}" ; then
+			ok "No changes necessary! Will not touch the original file at [${FILE}]"
+			continue
+		fi
+
+		warn "\t\tWriting the updated JSON to [${FILE}]..."
+		jq -r --indent 4 <<< "${JSON}" > "${FILE}" || fail "\t\tFailed to write the updated JSON to [${FILE}] (rc=${?})"
+		ok "\t\tJSON updated!"
+	done < <(list_package_json "${DIR}")
+	ok "Directory [${DIR}] processed!"
+done
