@@ -5,10 +5,12 @@ set -euo pipefail
 
 require_exe jq
 
+set_or_default PACKAGE_JSON "package.json"
+
 list_package_json()
 {
 	local DIR="${1:-.}"
-	find "${DIR}" -type f -not -ipath "${DIR}/node_modules/*" -not -ipath "${DIR}/.git/*" -iname "package.json" | sort
+	find "${DIR}" -type f -not -ipath "${DIR}/node_modules/*" -not -ipath "${DIR}/.git/*" -iname "${PACKAGE_JSON}" | sort
 }
 
 list_deps()
@@ -58,6 +60,8 @@ for D in "${@}" ; do
 	DIR="$(readlink -f "${D}" 2>&1)" || fail "Failed to resolve the directory [${D}] (rc=${?}): ${DIR}"
 	is_dir_writable "${DIR}" || fail "The directory [${DIR}] is not writable"
 
+	ROOT_FILE="${DIR}/${PACKAGE_JSON}"
+
 	running "Setting the package version to [${VER}] for group [${GROUP}] in [${DIR}] ..."
 	(( ++TOTAL_FOUND ))
 	while read FILE ; do
@@ -66,8 +70,10 @@ for D in "${@}" ; do
 		doing "\tEditing the file [${FILE}]..."
 		CHANGED="false"
 
+		# If the file is for a module of interest, or is the root file,
+		# we set the version!
 		NAME="$(jq -r ".name" <<< "${JSON}")"
-		if is_target "${GROUP}" "${NAME}" ; then
+		if is_target "${GROUP}" "${NAME}" || [ "${FILE}" == "${ROOT_FILE}" ] ; then
 			# Set the version to the new value
 			say "\t\tSetting the version to [${VER}] for [${NAME}] (${FILE})"
 			NEW_JSON="$(jq -r --arg V "${VER}"  '.version = $V' <<< "${JSON}" 2>&1)" || fail "\t\tFailed to set the new version to [${VER}] for [${NAME}](${FILE}) (rc=${?}): ${NEW_JSON}"
