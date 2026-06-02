@@ -15,19 +15,19 @@ export NODE_CACHE
 
 npm config delete prefix
 npm config set prefix "${NODE_CACHE}"
-export npm_config_prefix="${NODE_CACHE}"
+export NPM_CONFIG_PREFIX="${NODE_CACHE}"
 
 npm config delete cache
 npm config delete cache --global
 npm config set cache "${NODE_CACHE}/npm" --global
-export npm_config_cache="${NODE_CACHE}/npm"
+export NPM_CONFIG_CACHE="${NODE_CACHE}/npm"
 
 [ -v NODE_REGISTRY ] || NODE_REGISTRY=""
 if [ -n "${NODE_REGISTRY}" ] ; then
 	npm config delete registry
 	npm config delete registry --global
 	npm config set registry "${NODE_REGISTRY}" --global
-	export npm_config_registry="${NODE_REGISTRY}"
+	export NPM_CONFIG_REGISTRY="${NODE_REGISTRY}"
 fi
 
 for REG in "${!NODE_REGISTRY_@}" ; do
