@@ -3,4 +3,8 @@
 export JAVA_HOME="/usr/lib/jvm/java"
 export JRE_HOME="/usr/lib/jvm/jre"
 
-[ -v TOOLS_JAVA ] && set-java "${TOOLS_JAVA}"
+if [ -v TOOLS_JAVA ] ; then
+	# We use a long-form "if" to avoid returning a non-0 value
+	# if the variable isn't set
+	set-java "${TOOLS_JAVA}"
+fi
