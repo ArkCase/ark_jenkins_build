@@ -24,7 +24,7 @@ SCOPE="${1}"
 
 as_boolean "${DISABLE_DEPLOY}" && quit "Deployment is disabled - skipping scope [${SCOPE}] to ${STOW_URL}!"
 
-stow-nodejs-configure "${SCOPE}" || exit ${?}
+npm-auth-configure "${SCOPE}" || exit ${?}
 
 is_dir_readable "${PACK_DIR}" || quit "No packed directory [${PACK_DIR}] was found"
 

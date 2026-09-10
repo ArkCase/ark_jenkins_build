@@ -39,11 +39,10 @@ for VAR in "${VARS[@]}" ; do
 	S="STOW_${S}"
 
 	echo "MATCH ${VAR} (${S} / ${N})"
-	[ -v "${S}" ] && echo declare -gx "${N}=${!S@Q}"
+	[ -v "${S}" ] && declare -gx "${N}=${!S}"
 done
-exit 0
 
-stow-nodejs-configure "${SCOPE}" || exit ${?}
+npm-publish-configure "${SCOPE}" || exit ${?}
 
 set_or_default LERNA_FILE "lerna.json"
 if is_file_readable "${LERNA_FILE}" ; then
@@ -61,11 +60,11 @@ if [ -d "${__NODE_MODULES}" ] ; then
 fi
 unset __NODE_MODULES
 
-# Pre-release? Maybe check for NPM_PUBLISH_PRERELEASE to be a non-blank
+# Pre-release? Maybe check for NPM_PRERELEASE to be a non-blank
 # and use that as the --preid value and switch to prerelease?
-set_or_default NPM_PUBLISH_PRERELEASE
+set_or_default NPM_PRERELEASE
 # TODO: Sanity-check this command!
-[ -n "${NPM_PUBLISH_PRERELEASE}" ] && execute lerna publish prerelease --preid "${NPM_PUBLISH_PRERELEASE}" --yes --scope="${SCOPE}"
+[ -n "${NPM_PRERELEASE}" ] && execute lerna publish prerelease --preid "${NPM_PRERELEASE}" --yes --scope="${SCOPE}"
 
 # Not a pre-release, so just deploy
 execute lerna exec -- "npm publish --scope=${SCOPE}"
