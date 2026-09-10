@@ -10,14 +10,20 @@ set_as_boolean DISABLE_DEPLOY
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} scope"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} scope-1 [ scope-2 scope-3 ... scope-N ]"
 	exit 1
 }
 
-[ ${#} -ne 1 ] && usage
+[ ${#} -lt 1 ] && usage
 
-SCOPE="${1}"
-[[ "${SCOPE}" =~ ^@[^[:space:]]+$ ]] || fail "Invalid scope format: [${SCOPE}] - must match @scope-name"
+SCOPES=""
+REGEX="^@[a-z0-9~][-a-z0-9_.~]*$"
+readarray -t SCOPES < <(
+	for SCOPE in "${@}" ; do
+		[[ "${SCOPE}" =~ ${REGEX} ]] || fail "Invalid scope format: [${SCOPE}] - must match /${REGEX}/"
+		echo "${SCOPE}"
+	done | sort -u
+)
 
 set_or_default NPM_PUBLISH_URL
 [ -z "${NPM_PUBLISH_URL}" ] && quit "The NPM_PUBLISH_URL variable is empty, cannot configure NodeJS deployment"
@@ -30,8 +36,8 @@ set_or_default NPM_PUBLISH_URL
 		declare -xg "NPM_AUTH_PUBLISH_${P}=${!V}"
 	done
 
-	exec npm-auth-configure
-) || fail "Failed to configure authentication for the scope [${SCOPE}] at [${NPM_PUBLISH_URL}]!"
+	export NPM_AUTH_PUBLISH_SCOPES="${SCOPES[*]}"
 
-npm-config set "${SCOPE}:registry=${NPM_PUBLISH_URL}"
-ok "Associated the scope [${SCOPE}] with the URL [${NPM_PUBLISH_URL}]!"
+	exec npm-auth-configure
+) || fail "Failed to configure authentication for the scopes [${SCOPES[@]}] at [${NPM_PUBLISH_URL}]!"
+ok "Publishing authentication is configured!"

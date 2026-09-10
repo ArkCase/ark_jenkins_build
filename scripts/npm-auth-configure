@@ -16,46 +16,70 @@ list_credentials()
 	local PASSWORD=""
 	local TOKEN_VALUE=""
 	for VAR in "${!NPM_AUTH_@}" ; do
-		[[ "${VAR}" =~ ^NPM_AUTH_(.+)_(URL|TOKEN|USERNAME|PASSWORD)$ ]] || continue
+		[[ "${VAR}" =~ ^NPM_AUTH_(.+)_(URL|TOKEN|USERNAME|PASSWORD|SCOPES)$ ]] || continue
 		NAME="${BASH_REMATCH[1]}"
 
 		# First: the URL ...
 		URL="NPM_AUTH_${NAME}_URL"
 		[ -v "${URL}" ] || continue
-		[ -z "${!URL}" ] && err "The URL for the '${NAME}' NPM repository (${URL}) is empty, it will be ignored" 1>&2 && continue
+		[ -z "${!URL}" ] && err "The URL for the '${NAME}' NPM registry (${URL}) is empty, it will be ignored" 1>&2 && continue
 		if [[ ! "${!URL}" =~ ^https?://[-a-zA-Z0-9]+(\.[-a-zA-Z0-9]+)*(/.*)?$ ]] ; then
-			err "The URL [${!URL}] for the '${NAME}' NPM repository is not valid, it will be ignored" 1>&2
+			err "The URL [${!URL}] for the '${NAME}' NPM registry is not valid, it will be ignored" 1>&2
 			continue
 		fi
 
 		TOKEN="NPM_AUTH_${NAME}_TOKEN"
 		USERNAME="NPM_AUTH_${NAME}_USERNAME"
 		PASSWORD="NPM_AUTH_${NAME}_PASSWORD"
+		SCOPES="NPM_AUTH_${NAME}_SCOPES"
 		if [ -v "${TOKEN}" ] ; then
-			[ -z "${!TOKEN}" ] && err "The credentials for the '${NAME}' NPM repository (${TOKEN}) are empty, it will be ignored" 1>&2 && continue
+			[ -z "${!TOKEN}" ] && err "The credentials for the '${NAME}' NPM registry (${TOKEN}) are empty, it will be ignored" 1>&2 && continue
 			TOKEN_VALUE="${!TOKEN}"
 		else
 			[ -v "${USERNAME}" ] || continue
 			[ -z "${!USERNAME}" ] && continue
 			[ -v "${PASSWORD}" ] || continue
-			[ -z "${!PASSWORD}" ] && err "The credentials for the '${NAME}' NPM repository are incomplete - the value for ${PASSWORD} is empty" 1>&2 && continue
+			[ -z "${!PASSWORD}" ] && err "The credentials for the '${NAME}' NPM registry are incomplete - the value for ${PASSWORD} is empty" 1>&2 && continue
 			TOKEN_VALUE="$(echo -n "${!USERNAME}:${!PASSWORD}" | base64 -w 0)"
 		fi
 
-		echo "${NAME} $(echo -n "${!URL}" | base64 -w 0) ${TOKEN_VALUE}"
+		local SCOPE_LIST=""
+		if [ -v "${SCOPES}" ] ; then
+			# SCOPES is a string with the scope names covered by this registry,
+			# separated by commas and/or spaces
+			local SCOPE_ARR=()
+			readarray -t SCOPE_ARR < <(echo "${!SCOPES}" | tr '[,[:space:]]' '\n' | sed -e '/^\s*$/d' | sort -u)
+			for S in "${SCOPE_ARR[@]}" ; do
+				if [[ "${S}" =~ ^@[a-z0-9~][-a-z0-9_.~]*$ ]] ; then
+					[ -n "${SCOPE_LIST}" ] && SCOPE_LIST+=","
+					SCOPE_LIST+="${S}"
+				else
+					err "The scope [${S}] for the '${NAME}' NPM registry is invalid - it will be ignored (${SCOPES})" 1>&2
+				fi
+			done
+		fi
+
+		echo "${NAME} $(echo -n "${!URL}" | base64 -w 0) ${TOKEN_VALUE} ${SCOPE_LIST}"
 	done | sort -u
 }
 
 COUNT=0
-while read NAME URL TOKEN ; do
+while read NAME URL TOKEN SCOPES ; do
+	doing "Defining the authentication for the ${NAME} registry ..."
+
 	# Remove the scheme
 	URL="$(echo -n "${URL}" | base64 -d)"
 	[[ "${URL}" =~ ^https?:(//.*) ]] && PREFIX="${BASH_REMATCH[1]}" || PREFIX="${URL}"
 	# Add a final slash, if necessary
 	[[ "${PREFIX}" =~ /$ ]] || PREFIX+="/"
 
+	for SCOPE in ${SCOPES//,/ } ; do
+		npm-config set "${SCOPE}:registry=${URL}"
+		ok "Associated the scope [${SCOPE}] with the ${NAME} registry!"
+	done
+
 	npm-config set "${PREFIX}:_auth=${TOKEN}"
-	ok "Authentication set for the ${NAME} repository at ${URL}"
+	ok "Authentication set for the ${NAME} registry at ${URL}"
 	(( ++COUNT ))
 done < <(list_credentials)
-ok "Found ${COUNT} repositories to configure"
+ok "Found ${COUNT} registries to configure"
