@@ -120,16 +120,10 @@ render_artifacts_selector()
 	render_selector "${1}" "${ARTIFACTS_EXTRA_SELECTOR}"
 }
 
-get_global_sums_nowait()
-{
-	get_global_sums "${1}" "${2}" "false"
-}
-
 get_global_sums()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
-	local WAIT_READY="${3:-"true"}"
 	local SELECTOR="$(render_artifacts_selector "${RELEASE}")"
 	local POD=""
 
@@ -139,9 +133,7 @@ get_global_sums()
 	local ERRORS=()
 	while read POD ; do
 		# First, wait for the pod to become ready ... up to 5 mins
-		if as_boolean "${WAIT_READY}" ; then
-			kubectl --namespace "${NAMESPACE}" wait --for condition=Ready "${POD}" --timeout=5m &>/dev/null || continue
-		fi
+		kubectl --namespace "${NAMESPACE}" wait --for condition=Ready "${POD}" --timeout=5m &>/dev/null || continue
 
 		# Run the sums. We do this in case networking is not
 		# available to us. We know kubectl *is*, so use that!
@@ -151,7 +143,7 @@ get_global_sums()
 		SUM="$(timeout 30 kubectl --namespace "${NAMESPACE}" exec "${POD}" -- /usr/local/bin/global-sums 2>&1)" || RC=${?}
 		if [ ${RC} -ne 0 ] ; then
 			ERRORS+=( "$(timestamp) ${RC} ${SUM}" )
-			as_boolean "${WAIT_READY}" && continue || break
+			continue
 		fi
 
 		# The output must not be empty
@@ -489,7 +481,7 @@ else
 	fi
 
 	RC=0
-	OLD_ARTIFACTS="$(get_global_sums_nowait "${NAMESPACE}" "${RELEASE}" 2>&1)" || RC=${?}
+	OLD_ARTIFACTS="$(get_global_sums "${NAMESPACE}" "${RELEASE}" 2>&1)" || RC=${?}
 	if [ ${RC} -ne 0 ] ; then
 		warn "Failed to fetch the old artifact checksums (rc=${RC}):\n${OLD_ARTIFACTS}"
 		OLD_ARTIFACTS="{}"
