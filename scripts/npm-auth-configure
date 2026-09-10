@@ -6,6 +6,18 @@ SCRIPT="$(basename "${SCRIPT}")"
 set -euo pipefail
 . /.functions
 
+generate_token()
+{
+	local NAME="${1}"
+	local USERNAME="${2}"
+	local PASSWORD="${3}"
+	[ -v "${USERNAME}" ] || return 0
+	[ -n "${!USERNAME}" ] || return 0
+	[ -v "${PASSWORD}" ] || return 1
+	[ -n "${!PASSWORD}" ] || return 1
+	echo -n "${!USERNAME}:${!PASSWORD}" | base64 -w 0
+}
+
 list_credentials()
 {
 	# Iterate over all variables that start with NPM_AUTH_
@@ -33,14 +45,14 @@ list_credentials()
 		PASSWORD="NPM_AUTH_${NAME}_PASSWORD"
 		SCOPES="NPM_AUTH_${NAME}_SCOPES"
 		if [ -v "${TOKEN}" ] ; then
-			[ -z "${!TOKEN}" ] && err "The credentials for the '${NAME}' NPM registry (${TOKEN}) are empty, it will be ignored" 1>&2 && continue
-			TOKEN_VALUE="${!TOKEN}"
+			if [ -z "${!TOKEN}" ] ; then
+				err "The credentials for the '${NAME}' NPM registry (${TOKEN}) are empty, it will be ignored" 1>&2
+			else
+				TOKEN_VALUE="${!TOKEN}"
+			fi
 		else
-			[ -v "${USERNAME}" ] || continue
-			[ -z "${!USERNAME}" ] && continue
-			[ -v "${PASSWORD}" ] || continue
-			[ -z "${!PASSWORD}" ] && err "The credentials for the '${NAME}' NPM registry are incomplete - the value for ${PASSWORD} is empty" 1>&2 && continue
-			TOKEN_VALUE="$(echo -n "${!USERNAME}:${!PASSWORD}" | base64 -w 0)"
+			TOKEN_VALUE="$(generate_token "${NAME}" "${USERNAME}" "${PASSWORD}")" || \
+				err "The credentials for the '${NAME}' NPM registry are incomplete - a username was given but the value for ${PASSWORD} is empty" 1>&2
 		fi
 
 		local SCOPE_LIST=""
@@ -59,7 +71,7 @@ list_credentials()
 			done
 		fi
 
-		echo "${NAME} $(echo -n "${!URL}" | base64 -w 0) ${TOKEN_VALUE} ${SCOPE_LIST}"
+		echo "${NAME} $(echo -n "${!URL}" | base64 -w 0) ${TOKEN_VALUE:-x} ${SCOPE_LIST}"
 	done | sort -u
 }
 
@@ -78,6 +90,7 @@ while read NAME URL TOKEN SCOPES ; do
 		ok "Associated the scope [${SCOPE}] with the ${NAME} registry!"
 	done
 
+	[ "${TOKEN}" == "x" ] && continue
 	npm-config set "${PREFIX}:_auth=${TOKEN}"
 	ok "Authentication set for the ${NAME} registry at ${URL}"
 	(( ++COUNT ))
