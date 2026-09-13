@@ -1,0 +1,831 @@
+#!/usr/bin/python3
+import argparse
+import logging
+import os
+import re
+import sys
+import yaml
+from enum import IntEnum
+from jinja2 import Template
+from pathlib import Path
+from types import SimpleNamespace
+from urllib.parse import unquote, urlparse
+#
+# Constants
+#
+RANCHER = "rancher"
+
+DEFAULT_PROVIDER = RANCHER
+
+DEFAULT_DEPLOYMENT_DIR = "."
+DEFAULT_DEPLOYMENT_FILE = "deployment.yaml"
+
+IMAGE_TEMPLATE = '''\
+#
+# Template for rendering the image YAML for each deployment
+#
+# (envvar replacement is required!)
+global:
+  image:
+    {% if global.registry %}registry: "{{ global.registry }}"{% else %}# registry: <no value given>{% endif %}
+    {% if global.cachePrefix %}registry: "{{ global.cachePrefix }}"{% else %}# cachePrefix: <no value given>{% endif %}
+    {% if global.tagPrefix %}registry: "{{ global.tagPrefix }}"{% else %}# tagPrefix: <no value given>{% endif %}
+    {% if global.pullPolicy %}registry: "{{ global.pullPolicy }}"{% else %}# pullPolicy: <no value given>{% endif %}
+    {% if global.pullSecrets %}registry: "{{ global.pullSecrets }}"{% else %}# pullSecrets: <no value given>{% endif %}
+
+    app:
+      artifacts: &artifacts
+        {% if image.registry %}registry: "{{ image.registry }}"{% else %}# registry: <no value given>{% endif %}
+        {% if image.cachePrefix %}cachePrefix: "{{ image.cachePrefix }}"{% else %}# cachePrefix: <no value given>{% endif %}
+        {% if image.tagPrefix %}tagPrefix: "{{ image.tagPrefix }}"{% else %}# tagPrefix: <no value given>{% endif %}
+        repository: "{{ image.repository }}"
+        tag: "{{ image.tag }}"
+        {% if image.pullPolicy %}pullPolicy: "{{ image.pullPolicy }}"{% else %}# pullPolicy: <no value given>{% endif %}
+        {% if image.pullSecrets %}pullSecrets: "{{ image.pullSecrets }}"{% else %}# pullSecrets: <no value given>{% endif %}
+
+      # In case this is a FOIA deployment, we clone the artifacts segment
+      artifacts-foia:
+        <<: *artifacts
+'''
+
+PULL_SECRET_REFRESH = '''\
+# This is the template for the pull secrets refresh data
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    arkcase.com/pull-secret-refresh: "true"
+data:
+  enabled: "true"
+'''
+
+####################################################################################################
+# First, cover some missing dependencies														   #
+####################################################################################################
+
+# Compiled regexes reused across several sanitizers
+RE_CLUSTER_SPEC = re.compile(r"([a-zA-Z0-9_.-]+)(?::([a-zA-Z0-9_.-]+))?(?:@([a-zA-Z0-9_.-]+))?")
+RE_CACHE_PREFIX = re.compile(r"[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:/[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)?")
+RE_TAG_PREFIX = re.compile(r"[a-zA-Z0-9_](?:[a-zA-Z0-9._-]{0,127})?")
+RE_REPOSITORY = RE_CACHE_PREFIX  # same pattern as cache-prefix in the original
+
+RE_RFC1123_PART = re.compile(r"(?:[a-z0-9][-a-z0-9]*)?[a-z0-9]")
+RE_RFC1123 = re.compile(r"(?:[a-z0-9][-a-z0-9]*)?[a-z0-9](?:[.](?:[a-z0-9][-a-z0-9]*)?[a-z0-9])*")
+
+RE_REVISION = re.compile(r"((?:0|[1-9][0-9]*)(?:[.][0-9]+)+)(?:-([a-zA-Z0-9-]+(?:[.][a-zA-Z0-9-]+)*))?")
+RE_SNAPSHOT_CHECK = re.compile(r".*SNAPSHOT.*")
+RE_SNAPSHOT = re.compile(r".*\\bSNAPSHOT")
+RE_TEST_CHECK = re.compile(r".*\\bTEST([^a-zA-Z0-9].*)?")
+RE_TEST = re.compile(r".*\\bTEST([-][a-zA-Z0-9-]+)+")
+RE_EVAL_CHECK = re.compile(r".*\\bEVAL([^a-zA-Z0-9].*)?")
+RE_EVAL = re.compile(r".*\\bEVAL([-][a-zA-Z0-9-]+)+")
+RE_DEMO_CHECK = re.compile(r".*\\bDEMO([^a-zA-Z0-9].*)?")
+RE_DEMO = re.compile(r".*\\bDEMO([-][a-zA-Z0-9-]+)+")
+RE_SPRINT_CHECK = re.compile(r".*\\bSP([^a-zA-Z0-9].*)?")
+RE_SPRINT = re.compile(r".*\\bSP[-][A-Z][A-Z0-9]+-[0-9]{2,}([.][0-9]{2})?")
+RE_MILESTONE_CHECK = re.compile(r".*\\bM([^a-zA-Z0-9].*)?")
+RE_MILESTONE = re.compile(r".*\\bM[-][0-9]{2}")
+RE_RELEASE_CANDIDATE_CHECK = re.compile(r".*\\bRC([^a-zA-Z0-9].*)?")
+RE_RELEASE_CANDIDATE = re.compile(r".*\\bRC[-.][0-9]{2}")
+
+LOG_ENABLED = False
+                    
+class BuildType(IntEnum):
+	CHECK = 0
+	DEVELOP = 1
+	TEST = 2
+	RELEASE = 3
+
+	def __str__(self):
+		return str(self.name)
+
+def __decode_build_type(v):
+	if v is None:
+		return None
+
+	if type(v) == BuildType:
+		return v
+
+	try:
+		return BuildType[str(v).strip().upper()]
+	except:
+		return None
+
+def __compute_pre_release_flag(preRelease, label, syntax, check = None):
+	# First we use a reduced regex that checks to see if the value COULD be
+	# something we're interested in
+	if check and (not check.fullmatch(preRelease)):
+		return False
+
+	# If the initial check passed, then validate the full syntax for the value
+	result = syntax.fullmatch(preRelease) is not None
+
+	# If we passed the check, but not the full syntax, this is an error
+	if check and not result:
+		raise Exception(f"Invalid {label} syntax: [{preRelease}] - must match /^{syntax.pattern}$/");
+
+	# Both the check and the full syntax passed, so we return the result!
+	return result;
+
+def __compute_build_type(pre_release):
+	if not pre_release:
+		return BuildType.RELEASE
+
+	if __compute_pre_release_flag(pre_release, RE_SNAPSHOT, RE_SNAPSHOT_CHECK):
+		return BuildType.DEVELOP
+
+	test = __compute_pre_release_flag(pre_release, RE_TEST, RE_TEST_CHECK)
+	demo = __compute_pre_release_flag(pre_release, RE_DEMO, RE_DEMO_CHECK)
+	eval = __compute_pre_release_flag(pre_release, RE_EVAL, RE_EVAL_CHECK)
+	sprint = __compute_pre_release_flag(pre_release, RE_SPRINT, RE_SPRINT_CHECK)
+	milestone = __compute_pre_release_flag(pre_release, RE_MILESTONE, RE_MILESTONE_CHECK)
+	rc = __compute_pre_release_flag(pre_release, RE_RELEASE_CANDIDATE, RE_RELEASE_CANDIDATE_CHECK)
+	if test or demo or eval or sprint or milestone or rc:
+		return BuildType.TEST
+
+	return BuildType.CHECK
+
+def __parse_revision(revision):
+	if not revision:
+		return None
+
+	m = RE_REVISION.fullmatch(revision)
+	if not m:
+		return None
+
+	# Must have buildType and full
+	full = m.group(0)
+	base = m.group(1)
+	pre_release = m.group(2) or ""
+	build_type = __compute_build_type(pre_release)
+
+	return SimpleNamespace(full = full, base = base, pre_release = pre_release, build_type = build_type)
+
+def log(msg):
+	if LOG_ENABLED:
+		logging.info(msg)
+
+def log_ok(msg):
+	log(f"✅ {msg}")
+
+def log_warn(msg):
+	if LOG_ENABLED:
+		logging.warning(f"⚠️ {msg}")
+
+def log_err(msg):
+	if LOG_ENABLED:
+		logging.error(f"❌ {msg}")
+
+def log_wait(msg):
+	log(f"💤 {msg}")
+
+def fail(msg, code = 1):
+	log_err(msg)
+	os._exit(code)
+
+def __to_boolean(value, default=None):
+	if value is None:
+		return default
+	if type(value) == bool:
+		return value
+	return str(value).lower() == "true"
+
+def __is_map_enabled(target, valueIfNotSet=False, key="enabled"):
+	if target and key and (key in target):
+		return __to_boolean(target[key])
+	return valueIfNotSet
+
+def __merge_keys(map_, entry_key, entry_value):
+	existing = map_.get(entry_key)
+	if isinstance(existing, dict) and isinstance(entry_value, dict):
+		map_[entry_key] = __do_merge_maps(existing, entry_value)
+	elif isinstance(existing, (list, tuple, set)) and isinstance(entry_value, (list, tuple, set)):
+		map_[entry_key] = list(existing) + list(entry_value)
+	else:
+		map_[entry_key] = entry_value
+	return map_
+
+def __do_merge_maps(lo, hi):
+	merged = lo.copy()
+	for entry_key, entry_value in hi.items():
+		merged = __merge_keys(merged, entry_key, entry_value)
+	return merged
+
+def __merge_maps(lo, hi):
+	# Take some shortcuts
+	if hi is None:
+		return lo.copy() if lo is not None else None
+	if lo is None:
+		return hi.copy() if hi is not None else None
+	return __do_merge_maps(lo, hi)
+
+def __is_valid_hostname_part(part):
+	if not part:
+		return False
+	return (RE_RFC1123_PART.fullmatch(str(part)) is not None)
+
+def __is_valid_hostname(hostname):
+	if not hostname:
+		return False
+	return (RE_RFC1123.fullmatch(str(hostname)) is not None)
+
+def __is_valid_url(url):
+	try:
+		urlparse(url)
+		return True
+	except ValueError:
+		return False
+
+####################################################################################################
+# Below this line is the actual code															   #
+####################################################################################################
+
+def __remove_prefix(revision, prefix):
+	if (not revision) or (not prefix):
+		return revision
+	if revision.startswith(prefix):
+		revision = revision[len(prefix):]
+	return revision
+
+def __get_rancher_project_name(environment):
+	if not environment:
+		environment = {}
+
+	cluster = environment.get("cluster") or {}
+
+	# If no provider is used, default to Rancher
+	if (cluster.get("provider") or DEFAULT_PROVIDER) != RANCHER:
+		return ""
+
+	name = environment.get("name")
+	return environment.get("project") or f"ArkCase-{name.lower().capitalize()}"
+
+def __parse_cluster_spec(spec):
+	spec = spec.strip() if spec else spec
+	if not spec:
+		return None
+
+	matcher = RE_CLUSTER_SPEC.fullmatch(spec)
+	if not matcher:
+		return None
+
+	cluster = {
+		"name": matcher.group(1),
+		"spec": spec,
+	}
+
+	credentials = matcher.group(2)
+	if credentials:
+		cluster["credentials"] = credentials
+
+	provider = matcher.group(3)
+	if provider:
+		cluster["provider"] = provider
+
+	return cluster
+
+def __render_cluster_spec(cluster):
+	if not cluster:
+		return None
+	spec = cluster.get("name")
+	if cluster.get("credentials"):
+		spec += f":{cluster['credentials']}"
+	if cluster.get("provider"):
+		spec += f"@{cluster['provider']}"
+	return spec
+
+def __load_deployment_configuration(dir, file=DEFAULT_DEPLOYMENT_FILE):
+	path = Path(f"{dir or '.'}/{file}");
+	if not path.exists():
+		log_err(f"No deployment configuration found at [{path}]")
+		return None
+
+	try:
+		config = path.read_text(encoding="UTF-8")
+	except Exception:
+		logging.exception(f"❌ Failed to load the deployment configuration from [{path}]")
+		return None
+
+	if not config:
+		log_err(f"The deployment configuration at [{path}] was empty")
+		return None
+
+	yaml_data = yaml.safe_load(config)
+	if not yaml_data:
+		log_err(f"The deployment configuration at [{path}] was empty")
+		return None
+
+	return yaml_data
+
+def __parse_optional_map(value, scalar_key, scalar_mapper):
+	# If the value is None, return None
+	if value is None:
+		return None
+
+	# If it's a dict, just return a copy of it
+	if isinstance(value, dict):
+		return dict(value)
+
+	if isinstance(value, (list, tuple, set)):
+		raise RuntimeError("A Collection may not be treated as an optional map")
+
+	ret = {}
+	if scalar_key and scalar_mapper:
+		ret[scalar_key] = scalar_mapper(value)
+	return ret
+
+def __sanitize_cleanups(common, environment):
+	parser = lambda s: __to_boolean(s)
+
+	common = __parse_optional_map(common, "enabled", parser)
+	environment = __parse_optional_map(environment, "enabled", parser)
+
+	cleanups = __merge_maps(common, environment)
+	if __is_map_enabled(cleanups, False):
+		downscale = __parse_optional_map(cleanups.get("downscale"), "enabled", parser) or {}
+		if __is_map_enabled(downscale, False):
+			cleanups["downscale"] = downscale
+
+		attachments = __parse_optional_map(cleanups.get("attachments"), "enabled", parser) or {}
+		if __is_map_enabled(attachments, False):
+			cleanups["attachments"] = attachments
+	else:
+		# We return an empty map so it's easy to
+		# check if cleanups are active
+		cleanups = {}
+	return cleanups
+
+def __sanitize_recipients(common, environment):
+	result = {}
+	recipients = __merge_maps(common, environment)
+	if recipients:
+		for k in ["successful", "unstable", "fixed", "aborted", "failed", "any"]:
+			emails = recipients.get(k)
+			if isinstance(emails, str):
+				emails = re.split(r"[,\s]", emails)
+			if not isinstance(emails, list):
+				emails = None
+
+			# We will only get past this if emails is a non-empty list
+			if not emails:
+				continue
+
+			# Remove empty values
+			emails = [e for e in emails if e != ""]
+
+			# Remove duplicates
+			m = {}
+			for e in emails:
+				m[e.lower()] = e
+
+			# Sort the final result
+			result[k] = sorted(m.values())
+	return result
+
+def __sanitize_environments(common, environments):
+	if not common:
+		common = {}
+	if not environments:
+		fail("No environments configuration in the deployment descriptor")
+
+	# In case we want a default namespace applied
+	default_namespace = None
+
+	# The credentials::namespace combo must be unique for each environment
+	clusters = {}
+	final_environments = {}
+	for e in environments.keys():
+		if not e:
+			fail("Illegal environment name - empty string!")
+
+		# This is the build descriptor
+		E = environments[e]
+		if not E:
+			fail(f"The environment descriptor for [{e}] is empty!")
+
+		# Every environment MUST have a set of K8s FileCredentials
+		cluster = __parse_cluster_spec(E.get("cluster"))
+		if not cluster:
+			fail(f"The environment descriptor for [{e}] does not have a valid K8s cluster spec: [{E.get('cluster')}]")
+
+		# Apply any defaults that we should use
+		if not cluster.get("credentials") and common.get("credentials"):
+			cluster["credentials"] = common["credentials"]
+		if not cluster.get("provider") and common.get("provider"):
+			cluster["provider"] = common["provider"]
+		cluster["spec"] = __render_cluster_spec(cluster)
+		E["cluster"] = cluster
+
+		# If no namespace is given explicitly, we assume "default"
+		raw_namespace = E.get("namespace")
+		namespace = str(raw_namespace).lower() if raw_namespace is not None else None
+
+		# Do some sanity checks
+		if namespace:
+			# Make sure we were given a valid namespace
+			if not __is_valid_hostname_part(namespace):
+				fail(f"The namespace [{namespace}] for environment [{e}] is invalid")
+		else:
+			# In case this environment doesn't have an explicit namespace definition,
+			# we seek one out from the default value
+			if not default_namespace:
+				# Compute the default namespace value, if necessary,
+				# as late as possible (i.e. right until it's needed)
+				default_namespace = common.get("namespace")
+				if not default_namespace:
+					fail(f"The environment {e} has no namespace specified, and a default namespace is not provided in the global settings")
+				if not __is_valid_hostname_part(default_namespace):
+					fail(f"The default namespace [{default_namespace}] is invalid")
+
+			# Use the now-confirmed-as-good default namespace value
+			namespace = default_namespace
+		E["namespace"] = namespace
+
+		# Track duplicates
+		dupe_key = f"{str(E['cluster'])}/NS={namespace}"
+		if dupe_key in clusters:
+			fail(f"The environment descriptor for [{e}] uses the same cluster, credentials, and namespace combination as the environment descriptor for {clusters[dupe_key]}: {dupe_key}")
+		clusters[dupe_key] = e
+
+		env_type = E.get("type")
+		if not env_type:
+			fail(f"The environment descriptor for [{e}] does not have a type specification to restrict which build types are acceptable")
+		env_type = __decode_build_type(env_type)
+		if not env_type:
+			fail(f"The environment descriptor [{e}] has an invalid build type value of [{E.get('type')}]")
+		E["type"] = str(env_type)
+		E["name"] = e
+		E["cleanups"] = __sanitize_cleanups(common.get("cleanups"), E.get("cleanups"))
+		E["recipients"] = __sanitize_recipients(common.get("recipients"), E.get("recipients"))
+
+		# Make life easier downstream...
+		final_environments[e] = dict(E)
+
+	# At this point, the environment descriptors are sane and correct, so return them
+	return final_environments
+
+def __sanitize_helm(common, environment):
+	# Prioritize the environment info over the common info
+	helm = __merge_maps(common, environment)
+	if not helm:
+		fail("No Helm information was included in the deployment descriptor")
+
+	repo = helm.get("repository")
+	if not repo:
+		fail("No Helm repository information was included in the deployment descriptor")
+	if not repo.get("name"):
+		fail("No Helm repository name was included in the deployment descriptor")
+	if not repo.get("url"):
+		fail("No Helm repository URL was included in the deployment descriptor")
+	if not __is_valid_url(repo.get("url")):
+		fail(f"An invalid Helm URL was given in the deployment descriptor: [{repo.get('url')}]")
+
+	# TODO: authentication support for the Helm repo?
+
+	chart = helm.get("chart")
+	if not chart:
+		fail("No Helm chart information was included in the deployment descriptor")
+	if not chart.get("name"):
+		fail("No Helm chart name was included in the deployment descriptor")
+
+	if not helm.get("release"):
+		fail("No Helm release name was included in the deployment descriptor")
+
+	template_specified = False
+	if helm.get("imageTemplate"):
+		template_specified = True
+	else:
+		helm["imageTemplate"] = "image-template.yaml"
+
+	image_template = None
+	error_msg = None
+
+	# If the file exists, use it instead of the default from the library
+	path = Path(helm["imageTemplate"])
+	if path.exists():
+		try:
+			image_template = path.read_text(encodig="UTF-8")
+			if not image_template:
+				error_msg = f"No Helm image template [{helm['imageTemplate']}] was found"
+		except Exception as e:
+			error_msg = f"Failed to read the contents from [{path}]: {e}"
+	elif template_specified:
+		# If the template value was specified but the file doesn't exist,
+		# this is an unrecoverable error b/c we can't just use the default
+		error_msg = f"No Helm image template [{helm['imageTemplate']}] was found"
+	else:
+		# No specific file was given, and the defaulted name was
+		# also missing, so try to load the default resource
+		#
+		# TODO: Softcode or compute this default path
+		image_template = IMAGE_TEMPLATE
+
+	# This should make things explode
+	if error_msg:
+		fail(error_msg)
+
+	# No explosion ... use the loaded template!
+	helm["imageTemplate"] = image_template
+
+	return dict(helm)
+
+def __get_map_value(key, maps, allow_null=True):
+	for m in maps:
+		if key in m:
+			ret = m[key]
+			if ret or allow_null:
+				return ret
+	return None
+
+def __sanitize_image_global(common, environment):
+	sources = [environment or {}]
+
+	# Optionally disable the use of the templated values here
+	use_template = __to_boolean(__get_map_value("useTemplate", sources, True), True)
+	if use_template:
+		sources.append(common or {})
+
+	global_ = {}
+
+	# Expand environment values if necessary
+	registry = __get_map_value("registry", sources)
+	if registry and (registry != "-"):
+		if not __is_valid_hostname(registry):
+			fail(f"The global container registry [{registry}] is not a valid RFC-1123 hostname")
+	else:
+		registry = ""
+	global_["registry"] = registry or ""
+
+	cache_prefix = __get_map_value("cachePrefix", sources, False)
+	if cache_prefix and (cache_prefix != "-"):
+		if not RE_CACHE_PREFIX.fullmatch(cache_prefix):
+			fail(f"The global cache prefix information contains invalid data: [{cache_prefix}]")
+		global_["cachePrefix"] = cache_prefix
+	else:
+		global_["cachePrefix"] = ""
+
+	tag_prefix = __get_map_value("tagPrefix", sources, False)
+	if tag_prefix and (tag_prefix != "-"):
+		if not RE_TAG_PREFIX.fullmatch(tag_prefix):
+			fail(f"The global tag prefix information contains invalid data: [{tag_prefix}]")
+		global_["tagPrefix"] = tag_prefix
+	else:
+		global_["tagPrefix"] = ""
+
+	global_["pullPolicy"] = __get_map_value("pullPolicy", sources) or "Always"
+	global_["pullSecret"] = __get_map_value("pullSecret", sources) or "aws-arkcase-pull"
+
+	return global_
+
+def __sanitize_image(global_, common, environment):
+	sources = [environment or {}]
+
+	# Optionally disable the use of the templated values here
+	use_template = __to_boolean(__get_map_value("useTemplate", sources, True), True)
+	if use_template:
+		sources.append(common or {})
+
+	# Optionally disable the use of the values from imageGlobal here
+	use_global = __to_boolean(__get_map_value("useGlobal", sources, True), True)
+	if use_global:
+		sources.append(global_ or {})
+
+	image = {
+		"useGlobal": use_global,
+		"useTemplate": use_template,
+	}
+
+	# Expand environment values if necessary
+	registry = __get_map_value("registry", sources)
+	if registry and (registry != "-"):
+		if not __is_valid_hostname(registry):
+			fail(f"The global container registry [{registry}] is not a valid RFC-1123 hostname")
+	else:
+		registry = ""
+	image["registry"] = registry or ""
+
+	repository = __get_map_value("repository", sources, False)
+	if not repository:
+		fail("The container image information lacks a repository specification for deployment")
+	if not RE_REPOSITORY.fullmatch(repository):
+		fail(f"The container image information contains invalid repository data: [{repository}]")
+	image["repository"] = repository
+
+	cache_prefix = __get_map_value("cachePrefix", sources, False)
+	if cache_prefix and (cache_prefix != "-"):
+		if not RE_CACHE_PREFIX.fullmatch(cache_prefix):
+			fail(f"The image cache prefix information contains invalid data: [{cache_prefix}]")
+		image["cachePrefix"] = cache_prefix
+	else:
+		image["cachePrefix"] = ""
+
+	tag_prefix = __get_map_value("tagPrefix", sources, False)
+	if tag_prefix and (tag_prefix != "-"):
+		if not RE_TAG_PREFIX.fullmatch(tag_prefix):
+			fail(f"The image tag prefix information contains invalid data: [{tag_prefix}]")
+		image["tagPrefix"] = tag_prefix
+	else:
+		image["tagPrefix"] = ""
+
+	# We don't validate here ... that will happen later ...
+	image["revision"] = __get_map_value("revision", sources)
+	if not image["revision"]:
+		fail("There is no image revision information in this deployment descriptor for the selected environment")
+	image["tag"] = image["revision"].replace("+", "_")
+
+	portal = __get_map_value("portal", sources)
+	image["portal"] = portal or ""
+
+	container = image["registry"]
+	if container:
+		container += "/"
+	image["container"] = (
+		container
+		+ (f"{image['cachePrefix']}/" if image["cachePrefix"] else "")
+		+ image["repository"]
+		+ f":{image['tagPrefix']}{image['tag']}"
+	)
+
+	image["builder"] = __get_map_value("builder", sources)
+	image["devel"] = __to_boolean(__get_map_value("devel", sources))
+
+	auth_map = {}
+	auth_entries = __get_map_value("auth", sources)
+	if auth_entries:
+		for n in auth_entries:
+			auth_map[f"{n.get('cred')}@{n.get('host')}"] = n
+	image["auth"] = list(auth_map.values())
+
+	pull_policy = __get_map_value("pullPolicy", sources)
+	image["pullPolicy"] = pull_policy if (pull_policy and pull_policy != "-") else "Always"
+
+	pull_secret = __get_map_value("pullSecret", sources)
+	image["pullSecret"] = pull_secret if (pull_secret and pull_secret != "-") else "aws-arkcase-pull"
+
+	return image
+
+def __sanitize_target_environment(name):
+	if not name:
+		return name
+
+	# URL-decode it, just in case ... b/c it can be necessary ;)
+	name = unquote(name, encoding="UTF-8")
+
+	# Now take only everything after the last slash
+	slash = name.rfind("/")
+	if slash >= 0:
+		name = name[slash + 1:]
+
+	# Return whatever's left
+	return name
+
+
+def __extract_template_info(deployment):
+	tpl = {}
+	# This is for the new deployment descriptor structure
+	if "environment-template" in deployment:
+		t = deployment.get("environment-template") or {}
+
+		tpl["imageGlobal"] = t.get("imageGlobal") or {}
+		tpl["image"] = t.get("image") or {}
+		tpl["helm"] = t.get("helm") or {}
+		tpl["environment"] = {
+			k: v for k, v in t.items() if k not in ("image", "imageGlobal", "helm")
+		}
+	else:
+		# This supports the original deployment descriptor structure
+		tpl["environment"] = deployment.get("settings") or {}
+		tpl["imageGlobal"] = (deployment.get("imageGlobal") if deployment else None) or {}
+		tpl["image"] = (deployment.get("image") if deployment else None) or {}
+		tpl["helm"] = (deployment.get("helm") if deployment else None) or {}
+	return tpl
+
+def __render_image_template(template_str, image={}, imageGlobal={}):
+	if not template_str:
+		return None
+
+	template = Template(template_str)
+	data = {
+		"image": image or {},
+		"global": imageGlobal or {}
+	}
+	yaml_str = template.render(**data)
+	yaml_data = yaml.safe_load(yaml_str)
+	if not yaml_data:
+		return None
+	return yaml_data
+
+def load_deployment_configuration(environment_name, dir=DEFAULT_DEPLOYMENT_DIR, file=DEFAULT_DEPLOYMENT_FILE):
+	if not __is_valid_hostname_part(environment_name):
+		fail(f"The target environment name [{environment_name}] is not a valid")
+
+	# The value to be returned
+	conf = {}
+
+	dir = dir or DEFAULT_DEPLOYMENT_DIR
+	file = file or DEFAULT_DEPLOYMENT_FILE
+
+	# TODO: Compute the base directory from a parameter?
+	# Load the deployment configuration. This will inform all other steps
+	deployment = __load_deployment_configuration(dir, file)
+	if not deployment:
+		fail("No deployment configuration found, cannot continue")
+
+	tpl = __extract_template_info(deployment)
+
+	# Does it contain build configuration for this build type?
+	environments = __sanitize_environments(tpl["environment"], deployment.get("environments"))
+
+	# The target MUST be defined...
+	if environment_name not in environments:
+		fail(f"The target environment [{environment_name}] is undefined in this deployment descriptor: {list(environments.keys()) if environments else None}")
+
+	# We have our target environment...
+	conf["environment"] = environments[environment_name]
+
+	conf["imageGlobal"] = __sanitize_image_global(
+		tpl["imageGlobal"],
+		conf["environment"].get("imageGlobal") if conf["environment"] else None,
+	)
+
+	# Does it contain the image information?
+	conf["image"] = __sanitize_image(
+		conf["imageGlobal"],
+		tpl["image"],
+		conf["environment"].get("image") if conf["environment"] else None,
+	)
+
+	# Does it contain the helm information?
+	conf["helm"] = __sanitize_helm(
+		tpl["helm"],
+		conf["environment"].get("helm") if conf["environment"] else None
+	)
+
+	if not conf["image"]["useGlobal"]:
+		conf["imageGlobal"] = {}
+
+	# If the deployment or the environment are disabled, make them go offline
+	conf["enabled"] = (
+		not __to_boolean(conf["environment"].get("disabled"), False)
+		and not __to_boolean(tpl["environment"].get("disabled"), False)
+	)
+
+	# If we're not enabled, we don't need any of the other information
+	if not conf["enabled"]:
+		return conf
+
+	# Set the new build's display name
+
+	# In some special circumstances, container images may have this prefix, and this is OK
+	devel_prefix = "devel-"
+
+	# Validate the revision given...
+	revision = __parse_revision(__remove_prefix(conf["image"]["revision"], devel_prefix))
+	if not revision:
+		fail(f"Failed to properly parse the revision [{conf['image']['revision']}] ... please make sure it matches the correct syntax!")
+	conf["buildType"] = str(revision.build_type)
+
+	if conf["image"]["portal"]:
+		# Validate that we're using a correct Portal revision
+		portal_revision = __parse_revision(__remove_prefix(conf["image"]["portal"], devel_prefix))
+		if not portal_revision:
+			fail(f"Failed to properly parse the Portal revision [{conf['image']['portal']}] ... please make sure it matches the correct syntax!")
+		if revision.build_type > portal_revision.build_type:
+			fail(f"The Portal revision ({portal_revision.build_type}) may not be of lesser quality than the artifact's revision ({revision.build_type})")
+
+	# Before we get in too deep, let's sanity-check the configuration
+
+	# Let's make sure that the target environment is of a valid type
+	# for the revision we're wanting to deploy
+	if revision.build_type == BuildType.CHECK:
+		fail(f"The revision [{revision.full}] is a CHECK revision, and can't be deployed")
+	if revision.build_type < __decode_build_type(conf["environment"]["type"]):
+		fail(f"Target environment [{environment_name}] is declared of type [{conf['environment']['type']}], but the build is of type [{revision.build_type}], and this is not supported.")
+
+	# Compute this right away, if applicable
+	conf["rancherProject"] = __get_rancher_project_name(conf["environment"])
+
+	# Load the secret refresh template
+	conf["secretRefreshTemplate"] = PULL_SECRET_REFRESH
+
+	if "imageTemplate" in conf["helm"]:
+		conf["helm"]["imageValues"] = __render_image_template(conf["helm"]["imageTemplate"], conf["image"], conf["imageGlobal"])
+
+	# log(f"Deployment configuration for {environment_name}:\n{yaml.dump(conf)}")
+
+	return conf
+
+if __name__ == "__main__":
+	logging.basicConfig(level=logging.INFO, stream=sys.stderr, format='%(asctime)s - %(levelname)-8s - %(message)s')
+	LOG_ENABLED = True
+	parser = argparse.ArgumentParser(description="Render the environment configuration for a specific environment")
+	parser.add_argument("-d", "--dir", dest="dir", metavar="dir", action="store", help=f"The directory from where to read the deployment configurations from (default = '.')")
+	parser.add_argument("-f", "--file", dest="file", metavar="file", action="store", help=f"The name of the file from which to read the deployment configuration (default = '{DEFAULT_DEPLOYMENT_FILE}')")
+	parser.add_argument("-i", "--image-only", dest="imageOnly", action="store_true", help=f"Limit the rendered output to the image values file for Helm deployment")
+	parser.add_argument("environment", metavar="environment", action="store", help=f"The environment for which to render the configuration", type=str)
+	args = parser.parse_args()
+
+	conf = load_deployment_configuration(args.environment, args.dir, args.file)
+	if args.imageOnly:
+		conf = conf["helm"]["imageValues"]
+	print(yaml.dump(conf))
