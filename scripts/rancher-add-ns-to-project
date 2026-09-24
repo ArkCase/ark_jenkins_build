@@ -27,7 +27,7 @@ usage()
 [ -n "${RANCHER_API_URL}" ] || RANCHER_API_URL="https://rancher.armedia.com"
 
 # Remove trailing slashes from the URL
-[[ "${RANCHER_API_URL}" =~ ^(.*)/*$ ]] || fail "Invalid Rancher API URL [${RANCHER_API_URL}]"
+[[ "${RANCHER_API_URL}" =~ ^(https?://[^/]+(/+[^/]+)*)/*$ ]] || fail "Invalid Rancher API URL [${RANCHER_API_URL}]"
 RANCHER_API_ENDPOINT="${BASH_REMATCH[1]}"
 
 NAMESPACE="${1}"

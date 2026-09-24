@@ -27,8 +27,8 @@ usage()
 [ -n "${RANCHER_API_URL}" ] || RANCHER_API_URL="https://rancher.armedia.com"
 
 # Remove trailing slashes from the URL
-[[ "${RANCHER_API_URL}" =~ ^(.*)/*$ ]] || fail "Invalid Rancher API URL [${RANCHER_API_URL}]"
-RANCHER_API_ENDPOINT="${BASH_REMATCH[0]}/v3/clusters"
+[[ "${RANCHER_API_URL}" =~ ^(https?://[^/]+(/+[^/]+)*)/*$ ]] || fail "Invalid Rancher API URL [${RANCHER_API_URL}]"
+RANCHER_API_ENDPOINT="${BASH_REMATCH[1]}/v3/clusters"
 
 CLUSTER_NAME="${1}"
 [ -n "${CLUSTER_NAME}" ] || fail "Must provide a non-empty cluster name"
