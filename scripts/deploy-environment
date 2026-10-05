@@ -461,6 +461,9 @@ for D in "${COMMON_DIRS[@]}" ; do
 	else
 		warn "No common values are being applied from [${COMMON_DIR}] - the directory doesn't exist"
 	fi
+	#
+	# TODO: add the image YAML file here, computed using the new get-deployment-configuration script
+	#
 done
 
 #
