@@ -33,13 +33,9 @@ cd "${DIR}" || fail "Failed to CD into [${DIR}]"
 
 require_file_readable "${POM}"
 
-# Have to use this, or things may not work properly everywhere
-# if an old version of the plugin is used
-HELP="org.apache.maven.plugins:maven-help-plugin:3.4.0"
-
 # This is useful for NodeJS/Angular projects, but will not
 # clobber the actual value should it be run within a Jenkins build
 set_or_default BUILD_NUMBER "999999"
 export BUILD_NUMBER
 
-exec mvn "${HELP}:evaluate" -Dexpression=project.version -q -DforceStdout -f "$(basename "${POM}")"
+exec mvn help:evaluate -Dexpression=project.version -q -DforceStdout -f "$(basename "${POM}")"
