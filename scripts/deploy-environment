@@ -348,7 +348,7 @@ smart_rollover()
 
 		# Wait until the deleted pods disappear
 		RC=0
-		execute timeout --signal=TERM --kill-after=5m 4m kubectl --namespace "${NAMESPACE}" --ignore-not-found --timeout=3m wait --for=delete pod "${ROLL[@]}" || RC=${?}
+		execute timeout --signal=TERM --kill-after=5m 4m kubectl --namespace "${NAMESPACE}" --timeout=3m wait --for=delete pod "${ROLL[@]}" || RC=${?}
 		if [ ${RC} -ne 0 ] ; then
 			err "Failed to wait for the pods ${ROLL[@]} to be deleted ... will wait 30 seconds as a safety precaution (rc=${RC})"
 			if ! sleep 30s ; then
