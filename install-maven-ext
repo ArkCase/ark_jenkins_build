@@ -1,0 +1,51 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+TOOL_DIR="/tools"
+
+cleanup()
+{
+	local RC=${?}
+	is_dir_exists "${TEMPDIR:-}" && rm -rf "${TEMPDIR}" &>/dev/null
+	return ${RC}
+}
+
+list_ext()
+{
+	find "${TOOL_DIR}/mvn" -type d -name 'ext' -exec readlink -f '{}' ';'
+}
+
+usage()
+{
+	[ ${#} -eq 0 ] || err "${@}"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} maven-coordinates [ maven-repo-url ]"
+	exit 1
+}
+
+[ ${#} -ge 1 ] || usage
+[ ${#} -le 2 ] || usage
+
+SRC="${1}"
+[ -n "${SRC}" ] || fail "The artifact coordinates may not be the empty string"
+shift
+
+ARGS=( "${SRC}" )
+
+if [ ${#} -gt 0 ] ; then
+	REPO="${1}"
+	[ -n "${REPO}" ] || fail "The artifact repository may not be the empty string"
+	ARGS+=( "${REPO}" )
+fi
+
+trap cleanup EXIT
+export TEMPDIR="$(mktemp -d --tmpdir=. "maven-ext-XXXXXXXX" 2>&1)" || fail "Failed to create a temporary file (rc=${?}): ${TEMPDIR}"
+
+mvn-get "${ARGS[@]}" "${TEMPDIR}" || fail "Failed to download the artifact (rc=${?}, ARGS=[ ${ARGS[@]@Q} ])"
+cd "${TEMPDIR}" || fail "Failed to CD into [${TEMPDIR}] (rc=${?})"
+while read TGT ; do
+	say "Copying into [${TGT}] ..."
+	cp -vf * "${TGT}" || fail "Failed to copy the files (rc=${?})"
+done < <(list_ext | sort -u)
+ok "Files installed successfully!"
