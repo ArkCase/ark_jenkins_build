@@ -1,0 +1,9 @@
+#!/bin/bash
+
+export GOROOT="/tools/go/"
+[ -n "${TOOLS_GO:-}" ] \
+	&& GOROOT+="${TOOLS_GO}" \
+	|| GOROOT+="latest"
+
+export PATH="${GOROOT}/bin:${PATH}"
+source <(go env)
