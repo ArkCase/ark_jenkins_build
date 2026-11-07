@@ -29,46 +29,23 @@ ARG MAVEN_XFERLOG_REPO
 USER "root"
 
 #
-# Install sudo
+# Everything in a single layer: sudo and its configuration for the build group, the configure and entrypoint scripts,
+# the tools managed at this level, the default initializers and configurators, the scripts used during builds, and
+# the Maven extension
 #
-RUN apt-get update && \
+RUN --mount=type=bind,target=/src \
+    --mount=type=secret,id=mvn_get_auth \
+    apt-get update && \
     apt-get install -y \
         screen \
         sudo \
       && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-#
-# Add the sudo configuration for the build group
-#
-COPY --chown=root:root 00-build /etc/sudoers.d
-RUN chmod 0640 /etc/sudoers.d/00-build
-
-#
-# Add the configure and entrypoint scripts
-#
-COPY --chown=root:root configure entrypoint /
-RUN chmod 0755 /configure /entrypoint
-
-#
-# Add any tools managed at this level
-#
-ADD --chown=root:root tools /tools
-
-#
-# Add the default initializers & configurators
-#
-COPY --chown=root:root init.d /init.d
-COPY --chown=root:root conf.d /conf.d
-
-#
-# Install all the scripts that are used during builds
-#
-COPY --chown=root:root scripts/ /usr/local/bin
-
-RUN --mount=type=bind,target=/src \
-    --mount=type=secret,id=mvn_get_auth \
+    rm -rf /var/lib/apt/lists/* && \
+    install -o root -g root -m 0440 -t /etc/sudoers.d /src/00-build && \
+    install -o root -g root -m 0755 -t / /src/configure /src/entrypoint && \
+    ( cd /src && tar --owner=root --group=root --mode=go-w -cf - tools init.d conf.d ) | tar -C / -xf - && \
+    install -o root -g root -m 0755 -t /usr/local/bin /src/scripts/* && \
     . /run/secrets/mvn_get_auth && \
     /src/install-maven-ext "${MAVEN_XFERLOG_SRC}" "${MAVEN_XFERLOG_REPO}"
 
