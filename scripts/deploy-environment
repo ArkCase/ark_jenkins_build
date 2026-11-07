@@ -76,6 +76,11 @@ roll_artifact_pods()
 
 	local NEW_ARTIFACT_PODS="$(list_artifact_uids "${NAMESPACE}" "${RELEASE}")"
 
+	if [ -z "${NEW_ARTIFACT_PODS}" ] ; then
+		ok "This deployment has no artifacts pods, no need to roll them!"
+		return 1
+	fi
+
 	local RESOURCES="statefulset,deployment,daemonset"
 
 	# By the time this function is called, all pods will have been rolled
@@ -94,11 +99,11 @@ roll_artifact_pods()
 	local OUT=""
 
 	running "Rolling the artifacts pods to ensure any new artifacts take hold"
-	OUT="$(kubectl --namespace "${NAMESPACE}" rollout restart "${RESOURCES}" --selector "${SELECTOR}" 2>&1)" || RC=${?}
+	OUT="$(execute kubectl --namespace "${NAMESPACE}" rollout restart "${RESOURCES}" --selector "${SELECTOR}" 2>&1)" || RC=${?}
 	[ ${RC} -eq 0 ] || fail "Failed to roll the artifacts pod(s) (rc=${RC}):\n${OUT}"
 
 	sleeping "Waiting for the rolled artifacts pods to become ready again..."
-	OUT="$(kubectl --namespace "${NAMESPACE}" rollout status "${RESOURCES}" --selector "${SELECTOR}" --timeout "${DEPLOY_TIMEOUT}" 2>&1)" || RC=${?}
+	OUT="$(execute kubectl --namespace "${NAMESPACE}" rollout status "${RESOURCES}" --selector "${SELECTOR}" --timeout "${DEPLOY_TIMEOUT}" 2>&1)" || RC=${?}
 	[ ${RC} -eq 0 ] || fail "Timed out waiting for the rolled artifacts pod(s) to become ready (rc=${RC}):\n${OUT}"
 
 	ok "The artifact pods were rolled and are ready!"
@@ -204,6 +209,10 @@ list_consumer_uids()
 {
 	local NAMESPACE="${1}"
 	local RELEASE="${2}"
+
+	# Without a label there's no selector to render, and no smart rollover either
+	[ -n "${DEPLOY_LABEL}" ] || return 0
+
 	list_pod_uids "${NAMESPACE}" "${RELEASE}" "${DEPLOY_LABEL}=true"
 }
 
@@ -221,8 +230,8 @@ list_changed_categories()
 	local NEW=""
 	local CATEGORY=""
 	while read CATEGORY ; do
-		OLD="$(jq -er ".${CATEGORY}" <<< "${OLD_ARTIFACTS}")" || OLD=""
-		NEW="$(jq -er ".${CATEGORY}" <<< "${NEW_ARTIFACTS}")" || NEW=""
+		OLD="$(jq -er --arg category "${CATEGORY}" '.[$category]' <<< "${OLD_ARTIFACTS}")" || OLD=""
+		NEW="$(jq -er --arg category "${CATEGORY}" '.[$category]' <<< "${NEW_ARTIFACTS}")" || NEW=""
 
 		# If the artifact category no longer exists, then
 		# we don't account for it as a changed category
@@ -369,7 +378,7 @@ sanitize_label()
 	local PREFIX="${BASH_REMATCH[2]}"
 	local NAME="${BASH_REMATCH[3]}"
 
-	is_valid_hostname "${PREFIX}" || return 2
+	[ -z "${PREFIX}" ] || is_valid_hostname "${PREFIX}" || return 2
 
 	echo -n "${LABEL}"
 	return 0
@@ -449,7 +458,7 @@ COMMON_DIRS=( "common" )
 #
 if [ -n "${CLUSTER_NAME:-}" ] ; then
 	CLUSTER_COMMON="common.${CLUSTER_NAME}"
-	[ -d "${CLUSTER_COMMON}" ] && COMMON_DIRS+=( "${CLUSTER_COMMON}" )
+	[ -d "${DEPLOYMENT_DIR}/${CLUSTER_COMMON}" ] && COMMON_DIRS+=( "${CLUSTER_COMMON}" )
 fi
 
 for D in "${COMMON_DIRS[@]}" ; do

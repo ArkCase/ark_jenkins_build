@@ -11,6 +11,12 @@ say()
 	to_stderr "${@}"
 }
 
+yaml_str()
+{
+	# A JSON string is also a valid YAML scalar, regardless of its contents
+	jq -n --arg V "${1}" '$V'
+}
+
 usage()
 {
 	[ ${#} -eq 0 ] || echo -e "❌ ${@}\n"
@@ -100,6 +106,7 @@ while true ; do
 		gh run list \
 			"${REPO[@]}" \
 			"${GH_USER_FLAGS[@]}" \
+			--workflow "${WORKFLOW}" \
 			--event workflow_dispatch \
 			--created "${START}..$(date -Is -u)" \
 			--json databaseId \
@@ -111,6 +118,12 @@ while true ; do
 	[ $(( NOW - WAIT_START )) -lt 300 ] || fail "Timed out trying to identify the launched run ID"
 	sleep 5 || fail "Interrupted while sleeping, cannot continue"
 done
+
+# The list is sorted newest-first, and any others were launched after ours
+if [[ "${RUN_ID}" == *$'\n'* ]] ; then
+	warn "Found multiple candidate runs (${RUN_ID//$'\n'/, }), will use the oldest one"
+	RUN_ID="${RUN_ID##*$'\n'}"
+fi
 
 # Wait for the run to complete
 say "\t✅ Workflow started with run ID [${RUN_ID}]..."
@@ -137,19 +150,19 @@ fi
 cat <<-EOF 1>&3
 ---
 # Workflow run launch results
-project: ${PROJECT@Q}
-workflow: ${WORKFLOW@Q}
+project: $(yaml_str "${PROJECT}")
+workflow: $(yaml_str "${WORKFLOW}")
 parameters:$(
 	if [ ${#} -gt 0 ] ; then
 		echo -e ""
 		for p in "${@}" ; do
 			[[ "${p}" =~ ^([0-9a-zA-Z_]+)=(.*)$ ]] || continue
-			echo -e "  ${BASH_REMATCH[1]}: ${BASH_REMATCH[2]@Q}"
+			echo "  ${BASH_REMATCH[1]}: $(yaml_str "${BASH_REMATCH[2]}")"
 		done
 	else
 		echo -e " {}"
 	fi
 )
-runId: ${RUN_ID@Q}
-runUrl: ${URL@Q}
+runId: $(yaml_str "${RUN_ID}")
+runUrl: $(yaml_str "${URL}")
 EOF

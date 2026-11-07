@@ -24,7 +24,7 @@ get_angular_version()
 	local DIR="${1}"
 	local JSON="${DIR}/${PACKAGE_JSON}"
 	is_file_readable "${JSON}" || return 1
-	jq -r ".version" < "${JSON}"
+	jq -r ".version // empty" < "${JSON}"
 	return ${?}
 }
 
@@ -62,10 +62,10 @@ is_angular "${DIR}" || exit 0
 is_maven "${DIR}" || exit 0
 
 # 1) get the version from package.json
-NODEJS_VERSION="$(get_angular_version "${DIR}")"
+NODEJS_VERSION="$(get_angular_version "${DIR}")" || fail "Failed to read the NodeJS version from [${DIR}/${PACKAGE_JSON}]"
 [ -n "${NODEJS_VERSION}" ] || fail "Failed to read the NodeJS version from [${DIR}/${PACKAGE_JSON}]"
 # 2) get the version from pom.xml
-MAVEN_VERSION="$(get_maven_version "${DIR}")"
+MAVEN_VERSION="$(get_maven_version "${DIR}")" || fail "Failed to read the Maven version from [${DIR}/${POM_XML}]"
 [ -n "${MAVEN_VERSION}" ] || fail "Failed to read the Maven version from [${DIR}/${POM_XML}]"
 
 [ "${NODEJS_VERSION}" != "${MAVEN_VERSION}" ] || exit 0

@@ -51,12 +51,17 @@ download-agent "${JENKINS_URL}" "${AGENT_JAR}" || exit ${?}
 
 set -- "${JENKINS_JAVA_BIN}" ${JENKINS_JAVA_OPTS} -jar "${AGENT_JAR}" "${CMD[@]}"
 
+# The agent's secret must stay out of the logs
+LOG_CMD="${*@Q}"
+LOG_CMD="${LOG_CMD//"${JENKINS_SECRET}"/<redacted>}"
+
 set_as_boolean JENKINS_AGENT_TEST
 if as_boolean "${JENKINS_AGENT_TEST}" ; then
 	JENKINS_AGENT_TEST="true"
-	warn "Test mode active - old command: [${@@Q}]"
+	warn "Test mode active - old command: [${LOG_CMD}]"
 	set -- "/usr/bin/tail" "-f" "/dev/null"
+	LOG_CMD="${*@Q}"
 fi
 
-running "Executing the command: ${@@Q}"
+running "Executing the command: ${LOG_CMD}"
 exec /configure "${@}"

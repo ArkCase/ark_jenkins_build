@@ -8,7 +8,7 @@ set -euo pipefail
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} appId [targetPath]" 1>&2
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} appName [targetPath]" 1>&2
 	exit 1
 }
 
@@ -87,17 +87,17 @@ while true ; do
 	say "\t✅ Build information retrieved!"
 
 	if [ -z "${VERACODE_BUILD_ID}" ] ; then
-		VERACODE_BUILD_ID="$(xmlstarlet sel -N "bi=https://analysiscenter.veracode.com/schema/4.0/buildinfo" -t -v "/bi:buildinfo/bi:build/@build_id" < "${BUILDINFO}")"
+		VERACODE_BUILD_ID="$(xmlstarlet sel -N "bi=https://analysiscenter.veracode.com/schema/4.0/buildinfo" -t -v "/bi:buildinfo/bi:build/@build_id" < "${BUILDINFO}")" || fail "Failed to find the build ID in [${BUILDINFO}]"
 		say "\t⚠️ the BUILD_ID is [${VERACODE_BUILD_ID}]"
 		BUILD_ID=(-buildid "${VERACODE_BUILD_ID}")
 	fi
 
-	STATUS="$(xmlstarlet sel -N "bi=https://analysiscenter.veracode.com/schema/4.0/buildinfo" -t -v "/bi:buildinfo/bi:build/bi:analysis_unit/@status" < "${BUILDINFO}")"
+	STATUS="$(xmlstarlet sel -N "bi=https://analysiscenter.veracode.com/schema/4.0/buildinfo" -t -v "/bi:buildinfo/bi:build/bi:analysis_unit/@status" < "${BUILDINFO}")" || fail "Failed to find the build status in [${BUILDINFO}]"
 	say "\t⚠️ the build status is [${STATUS}]"
 	case "${STATUS^^}" in
 
 		# These are "failed" statuses
-		"INCOMPLETE" | "PRESCAN FAILED" | "NO MODULES DEFINED" ) fail "Cannot wait for results any longer (status = [${STATUS}])" ;;
+		"INCOMPLETE" | "PRESCAN FAILED" | "PRE-SCAN FAILED" | "NO MODULES DEFINED" ) fail "Cannot wait for results any longer (status = [${STATUS}])" ;;
 
 		# These are "waitable" statuses
 		"VENDOR CONFIRMATION" | "VENDOR REVIEWING" | "PRE-SCAN SUBMITTED" | "PRE-SCAN SUCCESS" | "SCAN IN PROCESS" )
@@ -140,7 +140,7 @@ read SUM REST < <(sha256sum "${TARGET_PDF}")
 BYTES="$(stat -c "%s" "${TARGET_PDF}")"
 say "\t✅ Detailed report PDF retrieved as [${TARGET_PDF}] (size $(printf "%'d" "${BYTES}") bytes, checksum = ${SUM})"
 
-SCAN_SCORE="$(xmlstarlet sel -N "dr=https://www.veracode.com/schema/reports/export/1.0" -t -v "/dr:detailedreport/dr:static-analysis/@score" < "${TARGET_XML}")"
+SCAN_SCORE="$(xmlstarlet sel -N "dr=https://www.veracode.com/schema/reports/export/1.0" -t -v "/dr:detailedreport/dr:static-analysis/@score" < "${TARGET_XML}")" || SCAN_SCORE="unknown"
 say "⚠️ The scan score is ${SCAN_SCORE}"
 
 exit 0

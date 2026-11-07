@@ -1,6 +1,6 @@
 #!/bin/bash
 SCRIPT="$(readlink -f "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}")"
-BASEDIR="$(dirname "${0}")"
+BASEDIR="$(dirname "${SCRIPT}")"
 SCRIPT="$(basename "${0}")"
 INVOKED="${0}"
 
@@ -36,7 +36,7 @@ JVM_ARGS=( "${@}" )
 
 say "FS Dir   = [${FS_DIR}]"
 say "Java EXE = [${JAVA_EXE}]"
-${JAVA_EXE} -version
+"${JAVA_EXE}" -version
 say "JVM Args = [${JVM_ARGS[@]}]"
 
 # Now, download the Agent JAR ...

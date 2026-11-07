@@ -6,9 +6,17 @@ SCRIPT="$(basename "${SCRIPT}")"
 set -euo pipefail
 . /.functions
 
+# We override the default one b/c we need to spit out
+# actual, parseable data to STDOUT and let the noise
+# go to STDERR
+say()
+{
+	to_stderr "${@}"
+}
+
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} appId buildId" 1>&2
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} appName buildId" 1>&2
 	exit 1
 }
 

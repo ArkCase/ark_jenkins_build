@@ -105,7 +105,7 @@ case "${OUTCOME,,}" in
 	* )	RC=0
 		gh run view "${RUN_ID}" "${REPO[@]}" --exit-status &>/dev/null || RC="${?}"
 		# The exit status shows a failure, so show the full log
-		[ ${RC} -eq 0 ] || gh run view "${RUN_ID}" "${REPO[@]}" --log
+		[ ${RC} -eq 0 ] || gh run view "${RUN_ID}" "${REPO[@]}" --log || warn "Failed to fetch the log for run # ${RUN_ID}"
 		fail "The run has completed with the exit code [${RC}] and status [${OUTCOME}]"
 		;;
 esac

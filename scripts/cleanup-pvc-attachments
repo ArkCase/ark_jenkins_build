@@ -25,7 +25,14 @@ is_attachment_valid()
 	local ATTACHMENT_INFO="${2}"
 
 	# Identify the node and PV that it's attached to
-	local PV="$(jq -r ".spec.source.persistentVolumeName" <<< "${ATTACHMENT_INFO}")"
+	local PV="$(jq -r '.spec.source.persistentVolumeName // ""' <<< "${ATTACHMENT_INFO}")"
+
+	# Inline volumes have no PV to look up, so its absence doesn't make them broken
+	if [ -z "${PV}" ] ; then
+		say "\t✅ ${ATTACHMENT} 🔗 inline volume"
+		return 0
+	fi
+
 	local PV_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PV}\")" <<< "${PV_ALL}")"
 
 	if [ -z "${PV_INFO}" ] ; then
@@ -80,6 +87,10 @@ ATTACHMENT_COUNT="$(jq -r ".items | length" <<< "${ATTACHMENT_ALL}")"
 
 ok "Found ${ATTACHMENT_COUNT} instances of ${ATTACHMENT_RESOURCE}"
 [ ${ATTACHMENT_COUNT} -gt 0 ] || exit 0
+
+# With an empty listing every single attachment would look broken, so don't trust it
+[ "$(jq -r ".items | length" <<< "${PV_ALL}")" -gt 0 ] || fail "The cluster reports ${ATTACHMENT_COUNT} attachments but no PVs, refusing to continue"
+[ "$(jq -r ".items | length" <<< "${NODE_ALL}")" -gt 0 ] || fail "The cluster reports ${ATTACHMENT_COUNT} attachments but no nodes, refusing to continue"
 
 readarray -t ATTACHMENTS < <(jq -r ".items[] | .metadata.name" <<< "${ATTACHMENT_ALL}" | sort -u)
 

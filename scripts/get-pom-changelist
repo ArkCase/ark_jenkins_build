@@ -3,6 +3,14 @@
 set -euo pipefail
 . /.functions
 
+# We override the default one b/c we need to spit out
+# actual, parseable data to STDOUT and let the noise
+# go to STDERR
+say()
+{
+	to_stderr "${@}"
+}
+
 usage()
 {
 	say "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [pom.xml]" 1>&2
@@ -19,6 +27,9 @@ fi
 
 require_file_readable "${POM}"
 
-CHANGELIST="$(mvn -f "${POM}" help:evaluate -Dexpression=changelist -q -DforceStdout 2>&1)" || fail "Failed to compute the changelist using Maven's help:evaluate command: ${CHANGELIST}"
+CHANGELIST="$(mvn -f "${POM}" help:evaluate -Dexpression=changelist -q -DforceStdout)" || fail "Failed to compute the changelist using Maven's help:evaluate command: ${CHANGELIST}"
+
+# This is what help:evaluate spits out when the property isn't defined
+[ "${CHANGELIST}" != "null object or invalid expression" ] || CHANGELIST=""
 
 exec tr -d '\n' <<< "${CHANGELIST}"

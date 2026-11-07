@@ -10,7 +10,7 @@ set_or_default PACKAGE_JSON "package.json"
 list_package_json()
 {
 	local DIR="${1:-.}"
-	find "${DIR}" -type f -not -ipath "${DIR}/node_modules/*" -not -ipath "${DIR}/.git/*" -iname "${PACKAGE_JSON}" | sort
+	find "${DIR}" -type f -not -ipath "${DIR}/node_modules/*" -not -ipath "${DIR}/*/node_modules/*" -not -ipath "${DIR}/.git/*" -iname "${PACKAGE_JSON}" | sort
 }
 
 list_deps()
@@ -31,7 +31,7 @@ usage()
 {
 	[ ${#} -eq 0 ] || err "${@}"
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} group version [ dir-1 dir-2 dir-3 ... dir-N ]"
-	exit 0
+	exit 1
 }
 
 [ ${#} -ge 2 ] || usage
@@ -42,7 +42,7 @@ GROUP_RE="(@[-a-z0-9*~|_.]+)/?"
 GROUP="${BASH_REMATCH[1]}"
 
 VER="${2}"
-VER_RE="((0|[1-9][0-9]*)([.](0|[1-9][0-9]*)){2})(-([a-zA-Z0-9-]+([.][a-zA-Z0-9-]+)*))?([+]([a-zA-Z0-9-]+))?"
+VER_RE="((0|[1-9][0-9]*)([.](0|[1-9][0-9]*)){2})(-([a-zA-Z0-9-]+([.][a-zA-Z0-9-]+)*))?([+]([a-zA-Z0-9-]+([.][a-zA-Z0-9-]+)*))?"
 [[ "${VER}" =~ ^${VER_RE}$ ]] || fail "Invalid version [${VER}] - must be a valid SemVer version number!"
 
 shift 2
@@ -63,8 +63,8 @@ for D in "${@}" ; do
 	ROOT_FILE="${DIR}/${PACKAGE_JSON}"
 
 	running "Setting the package version to [${VER}] for group [${GROUP}] in [${DIR}] ..."
-	(( ++TOTAL_FOUND ))
 	while read FILE ; do
+		(( ++TOTAL_FOUND ))
 		JSON="$(<"${FILE}")"
 
 		doing "\tEditing the file [${FILE}]..."

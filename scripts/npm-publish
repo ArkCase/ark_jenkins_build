@@ -22,7 +22,7 @@ usage()
 SCOPE="${1}"
 [[ "${SCOPE}" =~ ^@[^[:space:]]+$ ]] || fail "Invalid scope format: [${SCOPE}] - must match @scope-name"
 
-as_boolean "${DISABLE_DEPLOY}" && quit "Deployment is disabled - skipping scope [${SCOPE}] to ${STOW_URL}!"
+as_boolean "${DISABLE_DEPLOY}" && quit "Deployment is disabled - skipping scope [${SCOPE}] to ${NPM_PUBLISH_URL:-}!"
 
 npm-auth-configure "${SCOPE}" || exit ${?}
 
@@ -42,7 +42,7 @@ FAIL=()
 report()
 {
 	[ ${#OK[@]} -gt 0 ] && ok "Published ${#OK[@]} files successfully"
-	[ ${#FAIL[@]} -gt 0 ] && ok "The following ${#FAIL[@]} files encountered publishing errors: [ ${#FAIL[@]} ]"
+	[ ${#FAIL[@]} -gt 0 ] && err "The following ${#FAIL[@]} files encountered publishing errors: [ ${FAIL[*]} ]"
 }
 
 trap report EXIT
@@ -59,8 +59,8 @@ while read PKG ; do
 		continue
 	fi
 
-	"${ON_ERR}" "Failed to deploy [${P}] (rc=${?}): ${OUT}"
-	FAIL=( "${P}" )
+	FAIL+=( "${P}" )
+	"${ON_ERR}" "Failed to deploy [${P}] (rc=${RC}): ${OUT}"
 done < <(find "${SRC}" -type f -name '*.tgz' | sort)
 
 [ ${#FAIL[@]} -eq 0 ] && exit 0 || exit 1

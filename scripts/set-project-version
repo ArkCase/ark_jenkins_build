@@ -113,6 +113,7 @@ nodejs_set_version()
 	return 0
 }
 
+BUFFER=""
 trap cleanup EXIT
 
 is_help_flag "${@}" && usage
@@ -129,7 +130,8 @@ VERSION="${1}"
 DIR="${2}"
 is_dir_writable "${DIR}" || fail "Can't write to the directory [${DIR}]"
 
-BUFFER="$(mktemp --suffix=.json package.XXXXXXXX)"
+DIR="$(readlink -f "${DIR}")"
+BUFFER="$(mktemp --tmpdir --suffix=.json package.XXXXXXXX)"
 cd "${DIR}" || fail "Failed to CD into [${DIR}]"
 maven_set_version "${VERSION}" "${DIR}" || fail "Failed to set the POM version for [${DIR}]"
 nodejs_set_version "${VERSION}" "${DIR}" || fail "Failed to set the NodeJS version for [${DIR}]"

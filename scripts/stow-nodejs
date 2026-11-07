@@ -19,7 +19,7 @@ usage()
 SCOPE="${1}"
 [[ "${SCOPE}" =~ ^@[^[:space:]]+$ ]] || fail "Invalid scope format: [${SCOPE}] - must match @scope-name"
 
-as_boolean "${DISABLE_DEPLOY}" && quit "Deployment is disabled - skipping scope [${SCOPE}] to ${NPM_PUBLISH_URL}!"
+as_boolean "${DISABLE_DEPLOY}" && quit "Deployment is disabled - skipping scope [${SCOPE}] to ${NPM_PUBLISH_URL:-${STOW_URL:-}}!"
 
 VARS=(
 	URL:
@@ -38,7 +38,6 @@ for VAR in "${VARS[@]}" ; do
 	N="NPM_PUBLISH_${N}"
 	S="STOW_${S}"
 
-	echo "MATCH ${VAR} (${S} / ${N})"
 	[ -v "${S}" ] && declare -gx "${N}=${!S}"
 done
 
@@ -53,10 +52,10 @@ fi
 #
 # Temporary fix to get lerna working again
 #
-__NODE_MODULES="${WORKSPACE}/node_modules"
+__NODE_MODULES="${WORKSPACE:-${PWD}}/node_modules"
 if [ -d "${__NODE_MODULES}" ] ; then
 	export PATH="${__NODE_MODULES}/.bin:${PATH}"
-	export NODE_PATH="${__NODE_MODULES}:${NODE_PATH}"
+	export NODE_PATH="${__NODE_MODULES}${NODE_PATH:+:${NODE_PATH}}"
 fi
 unset __NODE_MODULES
 

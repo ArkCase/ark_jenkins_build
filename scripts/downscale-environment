@@ -106,7 +106,6 @@ while true ; do
 
 	# There's still time remaining, but less than before, so
 	# let's use that instead of the original value...
-	DOWNSCALE_TIMEOUT=${REMAINING}
-	DOWNSCALE_TIMEOUT_STR="$(secs_to_timestr "${DOWNSCALE_TIMEOUT}")"
+	DOWNSCALE_TIMEOUT_STR="$(secs_to_timestr "${REMAINING}")"
 done
 ok "Downscale complete!"

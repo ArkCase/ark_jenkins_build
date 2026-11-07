@@ -19,6 +19,7 @@ nodejs_list_libraries()
 	find . -type f -name "${PACKAGE_JSON}" -printf "%h\n" | \
 		egrep -v "^[.]$" | \
 		egrep -v '^[.]/dist/' | \
+		egrep -v '(^|/)node_modules(/|$)' | \
 		sed -e 's;^[.]/;;g' | \
 		sort
 	return ${PIPESTATUS[0]}

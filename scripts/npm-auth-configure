@@ -30,12 +30,13 @@ list_credentials()
 	for VAR in "${!NPM_AUTH_@}" ; do
 		[[ "${VAR}" =~ ^NPM_AUTH_(.+)_(URL|SCOPES)$ ]] || continue
 		NAME="${BASH_REMATCH[1]}"
+		TOKEN_VALUE=""
 
 		# First: the URL ...
 		URL="NPM_AUTH_${NAME}_URL"
 		[ -v "${URL}" ] || continue
 		[ -z "${!URL}" ] && err "The URL for the '${NAME}' NPM registry (${URL}) is empty, it will be ignored" 1>&2 && continue
-		if [[ ! "${!URL}" =~ ^https?://[-a-zA-Z0-9]+(\.[-a-zA-Z0-9]+)*(/.*)?$ ]] ; then
+		if [[ ! "${!URL}" =~ ^https?://[-a-zA-Z0-9]+(\.[-a-zA-Z0-9]+)*(:[0-9]+)?(/.*)?$ ]] ; then
 			err "The URL [${!URL}] for the '${NAME}' NPM registry is not valid, it will be ignored" 1>&2
 			continue
 		fi
@@ -76,14 +77,14 @@ list_credentials()
 }
 
 COUNT=0
-while read NAME URL TOKEN SCOPES ; do
+while read -r NAME URL TOKEN SCOPES ; do
 	[ -z "${SCOPES}" ] && [ "${TOKEN}" == "x" ] && warn "Neither authentication nor scopes defined for the ${NAME} registry - skipping it!" && continue
 	[ "${TOKEN}" == "x" ] && TOKEN=""
 	[ -n "${TOKEN}" ] && AUTH="present" || AUTH="none"
+	URL="$(echo -n "${URL}" | base64 -d)"
 	doing "Configuring NPM for the ${NAME} registry at ${URL} (auth: ${AUTH}, scopes: ${SCOPES:-"none"}) ..."
 
 	# Remove the scheme
-	URL="$(echo -n "${URL}" | base64 -d)"
 	[[ "${URL}" =~ ^https?:(//.*) ]] && PREFIX="${BASH_REMATCH[1]}" || PREFIX="${URL}"
 	# Add a final slash, if necessary
 	[[ "${PREFIX}" =~ /$ ]] || PREFIX+="/"

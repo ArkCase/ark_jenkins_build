@@ -16,7 +16,7 @@ else
 	[ -n "${CAPTURE_OUT}" ] && exec 1> >(tee "${CAPTURE_OUT}")
 
 	[ -v CAPTURE_ERR ] || CAPTURE_ERR=""
-	[ -n "${CAPTURE_ERR}" ] && exec 2> >(tee "${CAPTURE_ERR}")
+	[ -n "${CAPTURE_ERR}" ] && exec 2> >(tee "${CAPTURE_ERR}" 1>&2)
 fi
 
 exec "${@}"

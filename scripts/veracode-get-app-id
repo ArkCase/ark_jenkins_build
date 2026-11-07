@@ -3,6 +3,14 @@
 set -euo pipefail
 . /.functions
 
+# We override the default one b/c we need to spit out
+# actual, parseable data to STDOUT and let the noise
+# go to STDERR
+say()
+{
+	to_stderr "${@}"
+}
+
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} appName" 1>&2
@@ -25,6 +33,6 @@ XML="$(veracode -action getapplist)" || fail "Failed to retrieve the application
 # Find the application with the correct (case-sensitive) name, and spit
 # out the Application ID
 
-APP_ID="$(xmlstarlet sel -N "al=https://analysiscenter.veracode.com/schema/2.0/applist" -t -v "/al:applist/al:app[@app_name='${APP_NAME}']/@app_id" <<< "${XML}")" || exit ${?}
+APP_ID="$(xmlstarlet sel -N "al=https://analysiscenter.veracode.com/schema/2.0/applist" -t -v "/al:applist/al:app[@app_name='${APP_NAME}']/@app_id" <<< "${XML}")" || fail "Failed to find the Application ID for [${APP_NAME}]"
 echo "${APP_ID}"
 exit 0

@@ -52,6 +52,10 @@ MISSING_NODE=()
 MISSING_PV=()
 PV_WITHOUT_PVC=()
 MISSING_PVC=()
+
+# The loop must stay in this shell, so the arrays it fills survive it
+exec 3> >(column -t)
+COLUMN_PID="${!}"
 for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 	ATTACHMENT_INFO="$(jq -r ".items[] | select(.metadata.name == \"${ATTACHMENT}\")" <<< "${ATTACHMENT_DATA}")"
 
@@ -75,10 +79,10 @@ for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 	if [ -n "${PV_INFO}" ] ; then
 		PVC_INFO=""
 		NAMESPACE=""
-		CLAIM_REF="$(jq -r ".spec.claimRef" <<< "${PV_INFO}")"
+		CLAIM_REF="$(jq -r '.spec.claimRef // ""' <<< "${PV_INFO}")"
 		if [ -n "${CLAIM_REF}" ] ; then
 			read NAMESPACE PVC < <(jq -r ".namespace + \" \" + .name" <<< "${CLAIM_REF}")
-			PVC_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
+			PVC_INFO="$(jq -r ".items[] | select(.metadata.namespace == \"${NAMESPACE}\" and .metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
 			PVC="${NAMESPACE}/${PVC}"
 			if [ -z "${PVC_INFO}" ] ; then
 				MISSING_PVC+=("${PVC}")
@@ -101,7 +105,10 @@ for ATTACHMENT in "${ATTACHMENTS[@]}" ; do
 
 	say "\t${PVC} 🔗 ${PV} 🔗 ${ATTACHMENT} 🔗 ${NODE}"
 	FAILED+=("${ATTACHMENT}")
-done | column -t
+done >&3
+exec 3>&-
+wait "${COLUMN_PID}"
+
 if [ ${#FAILED[@]} -eq 0 ] ; then
 	ok "No broken attachments were found!"
 	exit 0

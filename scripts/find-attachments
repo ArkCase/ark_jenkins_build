@@ -113,6 +113,9 @@ MISSING_NODE=()
 MISSING_PV=()
 PVC_WITHOUT_PV=()
 
+# The loop must stay in this shell, so the arrays it fills survive it
+exec 3> >(column -t)
+COLUMN_PID="${!}"
 for PVC in "${PVCS[@]}" ; do
 	PVC_INFO="$(jq -r ".items[] | select(.metadata.name == \"${PVC}\")" <<< "${PVC_DATA}")"
 
@@ -158,8 +161,10 @@ for PVC in "${PVCS[@]}" ; do
 
 	"${OK}" && continue
 
-	FAILED+=( "${PVC}" )
-done | column -t
+	FAILED+=( "${PVC#❌ }" )
+done >&3
+exec 3>&-
+wait "${COLUMN_PID}"
 
 [ ${#FAILED[@]} -eq 0 ] && exit 0
 

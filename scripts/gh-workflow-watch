@@ -54,7 +54,7 @@ RC=0
 gh run view "${RUN_ID}" "${REPO[@]}" --exit-status &>/dev/null || RC="${?}"
 
 # Always show the full log
-gh run view "${RUN_ID}" "${REPO[@]}" --log
+gh run view "${RUN_ID}" "${REPO[@]}" --log || warn "Failed to fetch the log for run # ${RUN_ID}"
 
 [ ${RC} -eq 0 ] || fail "Run ${RUN_ID} failed! (rc = ${RC})"
 say "✅ Run ${RUN_ID} succeeded!"

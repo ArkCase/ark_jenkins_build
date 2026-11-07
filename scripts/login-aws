@@ -28,4 +28,5 @@ say "\t✅ Docker password retrieved!"
 
 # Launch the docker login
 export DOCKER_USERNAME="${AWS_USERNAME}"
+unset DOCKER_PASSWORD
 exec "${BASEDIR}/login-docker" "${HOST}" <<< "${PASS}"

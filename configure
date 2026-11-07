@@ -121,7 +121,10 @@ configure_tools()
 
 		local TOOL_VERSION="${tool}/${VER}"
 		# If there's no "latest" link, we choose the last version in the array
-		[ "${VER}" == "${LATEST}" ] && [ ! -d "${TOOL_VERSION}" ] && VER="${AVAILABLE[-1]}"
+		if [ "${VER}" == "${LATEST}" ] && [ ! -d "${TOOL_VERSION}" ] ; then
+			VER="${AVAILABLE[-1]}"
+			TOOL_VERSION="${tool}/${VER}"
+		fi
 
 		# If the variable is set, then ${tool}/${VER} must exist and be a folder (or link to one)
 		if [ ! -d "${TOOL_VERSION}" ] ; then
@@ -262,7 +265,7 @@ if ! "${DISABLE_COW}" && is_mount_supported ; then
 
 	say "⚙️ Mount is supported, creating the COW mounts for: [${COW_MOUNTS[@]@Q}]"
 	for MOUNTPOINT in "${COW_MOUNTS[@]}"; do
-		MOUNTPOINT="$(readlink -f "${MOUNTPOINT}")"
+		MOUNTPOINT="$(readlink -f "${MOUNTPOINT}" || echo "${MOUNTPOINT}")"
 
 		# First - does the mountpoint exist?
 		if [ ! -d "${MOUNTPOINT}" ] ; then
@@ -303,8 +306,7 @@ fi
 
 # Run the tool configurations
 say "🛠️ Configuring the tools"
-CONFIGURED_TOOLS="$(configure_tools)"
-[ ${?} -ne 0 ] && fail "Failed to configure tool versions"
+CONFIGURED_TOOLS="$(configure_tools)" || fail "Failed to configure tool versions:\n${CONFIGURED_TOOLS}"
 readarray -t TOOLS < <(echo -n "${CONFIGURED_TOOLS}")
 ok "Tools configured: [${TOOLS[@]@Q}]"
 
@@ -417,7 +419,7 @@ while read CONF ; do
 		popd &>/dev/null
 	fi
 	popd &>/dev/null
-done < <(find "${CONF_DIR}" -mindepth 1 -maxdepth 1 -type d)
+done < <(find "${CONF_DIR}" -mindepth 1 -maxdepth 1 -type d | sort)
 
 # Allow for initialization scripts to be added
 if [ -d "${INIT_DIR}" ] ; then
@@ -432,7 +434,9 @@ if [ ${#} -gt 0 ] ; then
 	# This cleans up OLDPWD, for security
 	cd .
 
-	say "🚀 Launching command: [${@}] ..."
+	# The Jenkins agent's command line carries its secret, keep it out of the logs
+	LAUNCH_CMD="${*}"
+	say "🚀 Launching command: [${LAUNCH_CMD//"${JENKINS_SECRET:-}"/<redacted>}] ..."
 	exec "${@}"
 else
 	ok "Configuration complete - no command given to run"

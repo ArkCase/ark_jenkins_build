@@ -26,8 +26,7 @@ filter()
 }
 
 git ls-remote --exit-code --symref "${1}" | \
-	tail -n +2 | \
-	grep '[[:space:]]refs/' | \
+	grep -E '^[0-9a-f]+[[:space:]]+refs/' | \
 	grep -v '\^{}$' | \
 	awk '{ print $2 }' | \
-	filter "${2}"
+	filter "${2:-}"

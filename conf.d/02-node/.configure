@@ -31,7 +31,7 @@ if [ -n "${NODE_REGISTRY}" ] ; then
 fi
 
 for REG in "${!NODE_REGISTRY_@}" ; do
-	[[ "${REG}" =~ ^(@[^=:]+)=(.+)$ ]] || continue
+	[[ "${!REG}" =~ ^(@[^=:]+)=(.+)$ ]] || continue
 	TAG="${BASH_REMATCH[1]}"
 	URL="${BASH_REMATCH[2]}"
 	npm config delete "${TAG}:registry"

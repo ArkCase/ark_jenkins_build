@@ -28,10 +28,10 @@ IMAGE_TEMPLATE = '''\
 global:
   image:
     {% if global.registry %}registry: "{{ global.registry }}"{% else %}# registry: <no value given>{% endif %}
-    {% if global.cachePrefix %}registry: "{{ global.cachePrefix }}"{% else %}# cachePrefix: <no value given>{% endif %}
-    {% if global.tagPrefix %}registry: "{{ global.tagPrefix }}"{% else %}# tagPrefix: <no value given>{% endif %}
-    {% if global.pullPolicy %}registry: "{{ global.pullPolicy }}"{% else %}# pullPolicy: <no value given>{% endif %}
-    {% if global.pullSecrets %}registry: "{{ global.pullSecrets }}"{% else %}# pullSecrets: <no value given>{% endif %}
+    {% if global.cachePrefix %}cachePrefix: "{{ global.cachePrefix }}"{% else %}# cachePrefix: <no value given>{% endif %}
+    {% if global.tagPrefix %}tagPrefix: "{{ global.tagPrefix }}"{% else %}# tagPrefix: <no value given>{% endif %}
+    {% if global.pullPolicy %}pullPolicy: "{{ global.pullPolicy }}"{% else %}# pullPolicy: <no value given>{% endif %}
+    {% if global.pullSecret %}pullSecrets: "{{ global.pullSecret }}"{% else %}# pullSecrets: <no value given>{% endif %}
 
     app:
       artifacts: &artifacts
@@ -41,7 +41,7 @@ global:
         repository: "{{ image.repository }}"
         tag: "{{ image.tag }}"
         {% if image.pullPolicy %}pullPolicy: "{{ image.pullPolicy }}"{% else %}# pullPolicy: <no value given>{% endif %}
-        {% if image.pullSecrets %}pullSecrets: "{{ image.pullSecrets }}"{% else %}# pullSecrets: <no value given>{% endif %}
+        {% if image.pullSecret %}pullSecrets: "{{ image.pullSecret }}"{% else %}# pullSecrets: <no value given>{% endif %}
 
       # In case this is a FOIA deployment, we clone the artifacts segment
       artifacts-foia:
@@ -74,19 +74,19 @@ RE_RFC1123 = re.compile(r"(?:[a-z0-9][-a-z0-9]*)?[a-z0-9](?:[.](?:[a-z0-9][-a-z0
 
 RE_REVISION = re.compile(r"((?:0|[1-9][0-9]*)(?:[.][0-9]+)+)(?:-([a-zA-Z0-9-]+(?:[.][a-zA-Z0-9-]+)*))?")
 RE_SNAPSHOT_CHECK = re.compile(r".*SNAPSHOT.*")
-RE_SNAPSHOT = re.compile(r".*\\bSNAPSHOT")
-RE_TEST_CHECK = re.compile(r".*\\bTEST([^a-zA-Z0-9].*)?")
-RE_TEST = re.compile(r".*\\bTEST([-][a-zA-Z0-9-]+)+")
-RE_EVAL_CHECK = re.compile(r".*\\bEVAL([^a-zA-Z0-9].*)?")
-RE_EVAL = re.compile(r".*\\bEVAL([-][a-zA-Z0-9-]+)+")
-RE_DEMO_CHECK = re.compile(r".*\\bDEMO([^a-zA-Z0-9].*)?")
-RE_DEMO = re.compile(r".*\\bDEMO([-][a-zA-Z0-9-]+)+")
-RE_SPRINT_CHECK = re.compile(r".*\\bSP([^a-zA-Z0-9].*)?")
-RE_SPRINT = re.compile(r".*\\bSP[-][A-Z][A-Z0-9]+-[0-9]{2,}([.][0-9]{2})?")
-RE_MILESTONE_CHECK = re.compile(r".*\\bM([^a-zA-Z0-9].*)?")
-RE_MILESTONE = re.compile(r".*\\bM[-][0-9]{2}")
-RE_RELEASE_CANDIDATE_CHECK = re.compile(r".*\\bRC([^a-zA-Z0-9].*)?")
-RE_RELEASE_CANDIDATE = re.compile(r".*\\bRC[-.][0-9]{2}")
+RE_SNAPSHOT = re.compile(r".*\bSNAPSHOT")
+RE_TEST_CHECK = re.compile(r".*\bTEST([^a-zA-Z0-9].*)?")
+RE_TEST = re.compile(r".*\bTEST([-][a-zA-Z0-9-]+)+")
+RE_EVAL_CHECK = re.compile(r".*\bEVAL([^a-zA-Z0-9].*)?")
+RE_EVAL = re.compile(r".*\bEVAL([-][a-zA-Z0-9-]+)+")
+RE_DEMO_CHECK = re.compile(r".*\bDEMO([^a-zA-Z0-9].*)?")
+RE_DEMO = re.compile(r".*\bDEMO([-][a-zA-Z0-9-]+)+")
+RE_SPRINT_CHECK = re.compile(r".*\bSP([^a-zA-Z0-9].*)?")
+RE_SPRINT = re.compile(r".*\bSP[-][A-Z][A-Z0-9]+-[0-9]{2,}([.][0-9]{2})?")
+RE_MILESTONE_CHECK = re.compile(r".*\bM([^a-zA-Z0-9].*)?")
+RE_MILESTONE = re.compile(r".*\bM[-][0-9]{2}")
+RE_RELEASE_CANDIDATE_CHECK = re.compile(r".*\bRC([^a-zA-Z0-9].*)?")
+RE_RELEASE_CANDIDATE = re.compile(r".*\bRC[-.][0-9]{2}")
 
 LOG_ENABLED = False
                     
@@ -131,15 +131,15 @@ def __compute_build_type(pre_release):
 	if not pre_release:
 		return BuildType.RELEASE
 
-	if __compute_pre_release_flag(pre_release, RE_SNAPSHOT, RE_SNAPSHOT_CHECK):
+	if __compute_pre_release_flag(pre_release, "snapshot", RE_SNAPSHOT, RE_SNAPSHOT_CHECK):
 		return BuildType.DEVELOP
 
-	test = __compute_pre_release_flag(pre_release, RE_TEST, RE_TEST_CHECK)
-	demo = __compute_pre_release_flag(pre_release, RE_DEMO, RE_DEMO_CHECK)
-	eval = __compute_pre_release_flag(pre_release, RE_EVAL, RE_EVAL_CHECK)
-	sprint = __compute_pre_release_flag(pre_release, RE_SPRINT, RE_SPRINT_CHECK)
-	milestone = __compute_pre_release_flag(pre_release, RE_MILESTONE, RE_MILESTONE_CHECK)
-	rc = __compute_pre_release_flag(pre_release, RE_RELEASE_CANDIDATE, RE_RELEASE_CANDIDATE_CHECK)
+	test = __compute_pre_release_flag(pre_release, "test", RE_TEST, RE_TEST_CHECK)
+	demo = __compute_pre_release_flag(pre_release, "demo", RE_DEMO, RE_DEMO_CHECK)
+	eval = __compute_pre_release_flag(pre_release, "eval", RE_EVAL, RE_EVAL_CHECK)
+	sprint = __compute_pre_release_flag(pre_release, "sprint", RE_SPRINT, RE_SPRINT_CHECK)
+	milestone = __compute_pre_release_flag(pre_release, "milestone", RE_MILESTONE, RE_MILESTONE_CHECK)
+	rc = __compute_pre_release_flag(pre_release, "release candidate", RE_RELEASE_CANDIDATE, RE_RELEASE_CANDIDATE_CHECK)
 	if test or demo or eval or sprint or milestone or rc:
 		return BuildType.TEST
 
@@ -451,7 +451,7 @@ def __sanitize_environments(common, environments):
 		if not env_type:
 			fail(f"The environment descriptor for [{e}] does not have a type specification to restrict which build types are acceptable")
 		env_type = __decode_build_type(env_type)
-		if not env_type:
+		if env_type is None:
 			fail(f"The environment descriptor [{e}] has an invalid build type value of [{E.get('type')}]")
 		E["type"] = str(env_type)
 		E["name"] = e
@@ -504,7 +504,7 @@ def __sanitize_helm(common, environment):
 	path = Path(helm["imageTemplate"])
 	if path.exists():
 		try:
-			image_template = path.read_text(encodig="UTF-8")
+			image_template = path.read_text(encoding="UTF-8")
 			if not image_template:
 				error_msg = f"No Helm image template [{helm['imageTemplate']}] was found"
 		except Exception as e:

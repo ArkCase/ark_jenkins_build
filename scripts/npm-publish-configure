@@ -18,16 +18,14 @@ usage()
 
 SCOPES=""
 REGEX="^@[a-z0-9~][-a-z0-9_.~]*$"
-readarray -t SCOPES < <(
-	for SCOPE in "${@}" ; do
-		[[ "${SCOPE}" =~ ${REGEX} ]] || fail "Invalid scope format: [${SCOPE}] - must match /${REGEX}/"
-		echo "${SCOPE}"
-	done | sort -u
-)
+for SCOPE in "${@}" ; do
+	[[ "${SCOPE}" =~ ${REGEX} ]] || fail "Invalid scope format: [${SCOPE}] - must match /${REGEX}/"
+done
+readarray -t SCOPES < <(printf "%s\n" "${@}" | sort -u)
 
 set_or_default NPM_PUBLISH_URL
 [ -z "${NPM_PUBLISH_URL}" ] && quit "The NPM_PUBLISH_URL variable is empty, cannot configure NodeJS deployment"
-[[ "${NPM_PUBLISH_URL}" =~ ^https?://[-a-zA-Z0-9]+(\.[-a-zA-Z0-9]+)*(/.*)?$ ]] || fail "The NPM_PUBLISH_URL value [${NPM_PUBLISH_URL}] is not a valid URL"
+[[ "${NPM_PUBLISH_URL}" =~ ^https?://[-a-zA-Z0-9]+(\.[-a-zA-Z0-9]+)*(:[0-9]+)?(/.*)?$ ]] || fail "The NPM_PUBLISH_URL value [${NPM_PUBLISH_URL}] is not a valid URL"
 
 (
 	for P in URL TOKEN USERNAME PASSWORD ; do

@@ -46,8 +46,9 @@ RUN_ID="${2}"
 GH_USER_FLAGS=()
 [ -v GH_WORKFLOW_USER ] && [ "${GH_WORKFLOW_USER:-""}" ] && GH_USER_FLAGS=(--user "${GH_WORKFLOW_USER}")
 
-# Wait for the run to complete
-STATUS="$(gh run list "${REPO[@]}" --workflow "${WORKFLOW}" --json databaseId,status,conclusion --jq ".[] | select(.databaseId == ${RUN_ID})")"
+# Query the run directly: a listing only covers the most recent runs, so
+# a busy workflow can push a run that's still going out of its reach
+STATUS="$(gh run view "${RUN_ID}" "${REPO[@]}" --json databaseId,status,conclusion)"
 [ -n "${STATUS}" ] || fail "No run found for ${WORKFLOW} with ID = ${RUN_ID}"
 
 echo -n "${STATUS,,}"

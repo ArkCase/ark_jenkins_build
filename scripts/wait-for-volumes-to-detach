@@ -105,7 +105,7 @@ is_valid_hostname_part "${LONGHORN_NAMESPACE}" || fail "Invalid Longhorn namespa
 
 trap cleanup EXIT
 
-HARVESTER_CFG="$(mktemp "${HARVESTER}.XXXXXXXX.conf")"
+HARVESTER_CFG="$(mktemp --tmpdir "${HARVESTER}.XXXXXXXX.conf")"
 rancher-get-kubeconfig "${HARVESTER}" "${HARVESTER_CFG}" || exit ${?}
 ok "Downloaded the kubeconfig for ${HARVESTER}"
 
@@ -114,7 +114,7 @@ ok "Downloaded the kubeconfig for ${HARVESTER}"
 #
 is_harvester_cluster "${CLUSTER}" || quit "The cluster ${CLUSTER} is not a Harvester cluster, cannot wait for Longhorn volumes"
 
-CLUSTER_CFG="$(mktemp "${CLUSTER}.XXXXXXXX.conf")"
+CLUSTER_CFG="$(mktemp --tmpdir "${CLUSTER}.XXXXXXXX.conf")"
 rancher-get-kubeconfig "${CLUSTER}" "${CLUSTER_CFG}" || exit ${?}
 ok "Downloaded the kubeconfig for ${CLUSTER}"
 
@@ -122,11 +122,11 @@ ok "Downloaded the kubeconfig for ${CLUSTER}"
 # Step one: get the non-ephemeral PVs from the namespace
 #
 
-PVS="$(get_release_pvs "${NAMESPACE}" "${RELEASE}" 2>&1)" || fail "Failed to get the PVS at ${CLUSTER}::${NAMESPACE}, release ${RELEASE} (rc=${?}): ${PVS}"
+PVS="$(get_release_pvs "${NAMESPACE}" "${RELEASE}")" || fail "Failed to get the PVS at ${CLUSTER}::${NAMESPACE}, release ${RELEASE} (rc=${?})"
+
+[ -n "${PVS}" ] || quit "No PVs found for release ${RELEASE} at ${CLUSTER}::${NAMESPACE}"
 
 readarray -t PVS <<< "${PVS}"
-
-[ ${#PVS[@]} -gt 1 ] || quit "No PVs found for release ${RELEASE} at ${CLUSTER}::${NAMESPACE}"
 
 #
 # Step two: convert those PV names into Longhorn volume object names
@@ -136,8 +136,10 @@ S="s"
 [ ${#PVS[@]} -ne 1 ] || S=""
 say "Resolving ${#PVS[@]} PersistentVolume object${S} to the underlying Longhorn Volume objects: ${PVS[@]}"
 for PV in "${PVS[@]}" ; do
-	if ! VOLUME="$(get_longhorn_volume_name "${CLUSTER}" "${PV}" 2>&1)" ; then
-		err "Failed to get the volume name for the PV ${CLUSTER}::${PV} (rc=${?}): ${VOLUME}"
+	RC=0
+	VOLUME="$(get_longhorn_volume_name "${CLUSTER}" "${PV}" 2>&1)" || RC=${?}
+	if [ ${RC} -ne 0 ] ; then
+		err "Failed to get the volume name for the PV ${CLUSTER}::${PV} (rc=${RC}): ${VOLUME}"
 		continue
 	fi
 
@@ -146,7 +148,7 @@ for PV in "${PVS[@]}" ; do
 	VOLUMES+=( "${VOLUME}" )
 done
 
-[ ${#VOLUMES[@]} -gt 1 ] || quit "No Volume objects could be resolved"
+[ ${#VOLUMES[@]} -gt 0 ] || quit "No Volume objects could be resolved"
 
 #
 # Step three: begin the wait on those Longhorn volumes to detach

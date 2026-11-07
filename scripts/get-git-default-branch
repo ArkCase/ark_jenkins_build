@@ -14,4 +14,7 @@ usage()
 
 [ ${#} -ne 1 ] && usage
 
-git ls-remote --exit-code --symref "${1}" HEAD | awk -F'[/\t]' 'NR == 1 { print $3 }'
+# With no symref (i.e. a detached HEAD), there's no default branch to report
+git ls-remote --exit-code --symref "${1}" HEAD | \
+	awk -F'\t' 'NR == 1 && sub(/^ref: refs\/heads\//, "", $1) { print $1 ; FOUND = 1 } END { exit !FOUND }' || \
+	{ err "Failed to identify the default branch" 1>&2 ; exit 1 ; }

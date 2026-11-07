@@ -15,7 +15,7 @@ usage()
 
 [ ${#} -lt 1 ] && usage
 
-set_or_default NPM "${NODE_HOME}/bin/npm"
+set_or_default NPM "${NODE_HOME:+${NODE_HOME}/bin/}npm"
 require_exe "${NPM}"
 
 LOCATION_GIVEN="false"

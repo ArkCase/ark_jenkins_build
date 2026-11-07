@@ -5,6 +5,14 @@ BASEDIR="$(dirname "${SCRIPT}")"
 set -euo pipefail
 . /.functions
 
+# We override the default one b/c we need to spit out
+# actual, parseable data to STDOUT and let the noise
+# go to STDERR
+say()
+{
+	to_stderr "${@}"
+}
+
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} cluster-name"

@@ -8,7 +8,7 @@ TOOL_DIR="/tools"
 cleanup()
 {
 	local RC=${?}
-	is_dir_exists "${TEMPDIR:-}" && rm -rf "${TEMPDIR}" &>/dev/null
+	is_dir "${TEMPDIR:-}" && rm -rf "${TEMPDIR}" &>/dev/null
 	return ${RC}
 }
 
@@ -40,7 +40,10 @@ if [ ${#} -gt 0 ] ; then
 fi
 
 trap cleanup EXIT
-export TEMPDIR="$(mktemp -d --tmpdir=. "maven-ext-XXXXXXXX" 2>&1)" || fail "Failed to create a temporary file (rc=${?}): ${TEMPDIR}"
+TEMPDIR="$(mktemp -d --tmpdir=. "maven-ext-XXXXXXXX" 2>&1)" || fail "Failed to create a temporary file (rc=${?}): ${TEMPDIR}"
+# Must be absolute: the cleanup runs after we've moved into this directory
+TEMPDIR="$(readlink -f "${TEMPDIR}")"
+export TEMPDIR
 
 mvn-get "${ARGS[@]}" "${TEMPDIR}" || fail "Failed to download the artifact (rc=${?}, ARGS=[ ${ARGS[@]@Q} ])"
 cd "${TEMPDIR}" || fail "Failed to CD into [${TEMPDIR}] (rc=${?})"
